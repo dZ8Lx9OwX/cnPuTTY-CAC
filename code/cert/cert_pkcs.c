@@ -276,13 +276,13 @@ BYTE * cert_pkcs_sign(struct ssh2_userkey * userkey, LPCBYTE pDataToSign, int iD
 		// report signing errors
 		if (iResult == CKR_KEY_TYPE_INCONSISTENT)
 		{
-			LPCSTR szMessage = "The PKCS library reported the selected certificate cannot be used to sign data.";
-			MessageBox(NULL, szMessage, "PuTTY PKCS Signing Problem", MB_OK | MB_ICONERROR);
+			LPCSTR szMessage = "PKCS库报告所选证书无法用于签名数据。";
+			MessageBox(NULL, szMessage, "PuTTY PKCS签名问题", MB_OK | MB_ICONERROR);
 		}
 		else
 		{
-			LPCSTR szMessage = "The PKCS library experienced an error attempting to perform a signing operation.";
-			MessageBox(NULL, szMessage, "PuTTY PKCS Signing Problem", MB_OK | MB_ICONERROR);
+			LPCSTR szMessage = "PKCS库在尝试执行签名操作时遇到错误。";
+			MessageBox(NULL, szMessage, "PuTTY PKCS签名问题", MB_OK | MB_ICONERROR);
 		}
 
 		// something failed so cleanup signature
@@ -363,11 +363,11 @@ CK_FUNCTION_LIST_PTR cert_pkcs_load_library(LPCSTR szLibrary)
 	// validate library was loaded
 	if (hModule == NULL)
 	{
-		LPCSTR szMessage = "PuTTY could not load the selected PKCS library. " \
-			"Either the file is corrupted or not appropriate for this version " \
-			"of PuTTY. Remember 32-bit PuTTY can only load 32-bit PKCS libraries and " \
-			"64-bit PuTTY can only load 64-bit PKCS libraries.";
-		MessageBox(NULL, szMessage, "PuTTY Could Not Load Library", MB_OK | MB_ICONERROR);
+		LPCSTR szMessage = "PuTTY无法加载所选PKCS库。" \
+			"文件已损坏或不适合此版本的PuTTY。" \
+			"注意：32位PuTTY只能加载32位PKCS库，" \
+			"64位PuTTY只能加载64位PKCS。";
+		MessageBox(NULL, szMessage, "PuTTY无法加载库", MB_OK | MB_ICONERROR);
 		return NULL;
 	}
 
@@ -378,10 +378,10 @@ CK_FUNCTION_LIST_PTR cert_pkcs_load_library(LPCSTR szLibrary)
 	if (C_GetFunctionList == NULL || C_GetFunctionList(&hFunctionList) != CKR_OK)
 	{
 		// does not look like a valid PKCS library
-		LPCSTR szMessage = "PuTTY was able to read the selected library file " \
-			"but it does not appear to be a PKCS library.  It does not contain " \
-			"the functions necessary to interface with PKCS.";
-		MessageBox(NULL, szMessage, "PuTTY PKCS Library Problem", MB_OK | MB_ICONERROR);
+		LPCSTR szMessage = "PuTTY能够读取选定的库文件，" \
+			"但它似乎不是PKCS库。" \
+			"它不包含与PKCS接口所需的功能。";
+		MessageBox(NULL, szMessage, "PuTTY PKCS库问题", MB_OK | MB_ICONERROR);
 
 		// error - cleanup and return
 		FreeLibrary(hModule);
@@ -393,9 +393,9 @@ CK_FUNCTION_LIST_PTR cert_pkcs_load_library(LPCSTR szLibrary)
 	if (iLong != CKR_OK &&
 		iLong != CKR_CRYPTOKI_ALREADY_INITIALIZED)
 	{
-		LPCSTR szMessage = "PuTTY could not initialize the selected PKCS library. " \
-			"Usually this is the result of a buggy or misconfigured PKCS library.";
-		MessageBox(NULL, szMessage, "PuTTY PKCS Library Problem", MB_OK | MB_ICONERROR);
+		LPCSTR szMessage = "PuTTY无法初始化所选PKCS库。" \
+			"通常这是错误或错误配置PKCS库的结果。";
+		MessageBox(NULL, szMessage, "PuTTY PKCS库问题", MB_OK | MB_ICONERROR);
 
 		// error - cleanup and return
 		FreeLibrary(hModule);
@@ -425,8 +425,8 @@ HCERTSTORE cert_pkcs_get_cert_store()
 	ZeroMemory(&tFileNameInfo, sizeof(OPENFILENAME));
 	tFileNameInfo.lStructSize = sizeof(OPENFILENAME);
 	tFileNameInfo.hwndOwner = GetForegroundWindow();
-	tFileNameInfo.lpstrFilter = "PKCS Library Files (*pkcs*.dll;*pks*.dll;*p11*.dll;*ykcs*.dll;gclib.dll)\0*pkcs*.dll;*pks*.dll;*p11*.dll;*ykcs*.dll;gclib.dll\0All Library Files (*.dll)\0*.dll\0\0";
-	tFileNameInfo.lpstrTitle = "Please Select PKCS #11 Library File";
+	tFileNameInfo.lpstrFilter = "PKCS库文件(*pkcs*.dll;*pks*.dll;*p11*.dll;*ykcs*.dll;gclib.dll)\0*pkcs*.dll;*pks*.dll;*p11*.dll;*ykcs*.dll;gclib.dll\0所有文件(*.dll)\0*.dll\0\0";
+	tFileNameInfo.lpstrTitle = "请选择PKCS#11库文件";
 	tFileNameInfo.lpstrInitialDir = szSysDir;
 	tFileNameInfo.Flags = OFN_FORCESHOWHIDDEN | OFN_FILEMUSTEXIST;
 	tFileNameInfo.lpstrFile = szFile;

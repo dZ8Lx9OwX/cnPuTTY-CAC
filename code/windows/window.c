@@ -346,7 +346,7 @@ static void close_session(void *vctx)
     int i;
 
     wgs->session_closed = true;
-    newtitle = dupprintf("%s (inactive)", appname);
+    newtitle = dupprintf("%s (不活跃)", appname);
     win_set_icon_title(&wgs->termwin, newtitle, DEFAULT_CODEPAGE);
     win_set_title(&wgs->termwin, newtitle, DEFAULT_CODEPAGE);
     sfree(newtitle);
@@ -369,7 +369,7 @@ static void close_session(void *vctx)
     for (i = 0; i < lenof(wgs->popup_menus); i++) {
         DeleteMenu(wgs->popup_menus[i].menu, IDM_RESTART, MF_BYCOMMAND);
         InsertMenu(wgs->popup_menus[i].menu, IDM_DUPSESS,
-                   MF_BYCOMMAND | MF_ENABLED, IDM_RESTART, "&Restart Session");
+                   MF_BYCOMMAND | MF_ENABLED, IDM_RESTART, "重启会话(&R)");
     }
 }
 
@@ -743,8 +743,8 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 
         for (j = 0; j < lenof(wgs->popup_menus); j++) {
             m = wgs->popup_menus[j].menu;
-            AppendMenu(m, MF_ENABLED, IDM_COPY, "&Copy");
-            AppendMenu(m, MF_ENABLED, IDM_PASTE, "&Paste");
+            AppendMenu(m, MF_ENABLED, IDM_COPY, "复制(&C)");
+            AppendMenu(m, MF_ENABLED, IDM_PASTE, "粘贴(&P)");
         }
 
         wgs->savedsess_menu = CreateMenu();
@@ -755,25 +755,25 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
             m = wgs->popup_menus[j].menu;
 
             AppendMenu(m, MF_SEPARATOR, 0, 0);
-            AppendMenu(m, MF_ENABLED, IDM_SHOWLOG, "&Event Log");
+            AppendMenu(m, MF_ENABLED, IDM_SHOWLOG, "事件日志(&E)");
             AppendMenu(m, MF_SEPARATOR, 0, 0);
-            AppendMenu(m, MF_ENABLED, IDM_NEWSESS, "Ne&w Session...");
-            AppendMenu(m, MF_ENABLED, IDM_DUPSESS, "&Duplicate Session");
+            AppendMenu(m, MF_ENABLED, IDM_NEWSESS, "新建会话(&W)...");
+            AppendMenu(m, MF_ENABLED, IDM_DUPSESS, "重复会话(&D)");
             AppendMenu(m, MF_POPUP | MF_ENABLED, (UINT_PTR)wgs->savedsess_menu,
-                       "Sa&ved Sessions");
-            AppendMenu(m, MF_ENABLED, IDM_RECONF, "Chan&ge Settings...");
+                       "保存会话(&V)");
+            AppendMenu(m, MF_ENABLED, IDM_RECONF, "修改设置(&G)...");
             AppendMenu(m, MF_SEPARATOR, 0, 0);
-            AppendMenu(m, MF_ENABLED, IDM_COPYALL, "C&opy All to Clipboard");
-            AppendMenu(m, MF_ENABLED, IDM_CLRSB, "C&lear Scrollback");
-            AppendMenu(m, MF_ENABLED, IDM_RESET, "Rese&t Terminal");
+            AppendMenu(m, MF_ENABLED, IDM_COPYALL, "复制所有内容到剪切板(&O)");
+            AppendMenu(m, MF_ENABLED, IDM_CLRSB, "清除回滚(&L)");
+            AppendMenu(m, MF_ENABLED, IDM_RESET, "重启终端(&T)");
             AppendMenu(m, MF_SEPARATOR, 0, 0);
             AppendMenu(m, (conf_get_int(wgs->conf, CONF_resize_action)
                            == RESIZE_DISABLED) ? MF_GRAYED : MF_ENABLED,
-                       IDM_FULLSCREEN, "&Full Screen");
+                       IDM_FULLSCREEN, "全屏显示(&F)");
             AppendMenu(m, MF_SEPARATOR, 0, 0);
             if (has_help())
-                AppendMenu(m, MF_ENABLED, IDM_HELP, "&Help");
-            str = dupprintf("&About %s", appname);
+                AppendMenu(m, MF_ENABLED, IDM_HELP, "帮助(&H)");
+            str = dupprintf("关于(&A)%s", appname);
             AppendMenu(m, MF_ENABLED, IDM_ABOUT, str);
             sfree(str);
         }
@@ -1037,7 +1037,7 @@ static void update_savedsess_menu(WinGuiSeat *wgs)
                    sesslist.sessions[i]);
     if (sesslist.nsessions <= 1)
         AppendMenu(wgs->savedsess_menu, MF_GRAYED, IDM_SAVED_MIN,
-                   "(No sessions)");
+                   "(暂无会话)");
 }
 
 /*
@@ -1104,7 +1104,7 @@ static void win_seat_update_specials_menu(Seat *seat)
         if (new_menu) {
             InsertMenu(wgs->popup_menus[j].menu, IDM_SHOWLOG,
                        MF_BYCOMMAND | MF_POPUP | MF_ENABLED,
-                       (UINT_PTR) new_menu, "S&pecial Command");
+                       (UINT_PTR) new_menu, "特殊命令(&P)");
             InsertMenu(wgs->popup_menus[j].menu, IDM_SHOWLOG,
                        MF_BYCOMMAND | MF_SEPARATOR, IDM_SPECIALSEP, 0);
         }
@@ -2207,11 +2207,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT message,
       case WM_CLOSE: {
         char *title, *msg, *additional = NULL;
         show_mouseptr(wgs, true);
-        title = dupprintf("%s Exit Confirmation", appname);
+        title = dupprintf("%s 退出确认！", appname);
         if (wgs->backend && wgs->backend->vt->close_warn_text) {
             additional = wgs->backend->vt->close_warn_text(wgs->backend);
         }
-        msg = dupprintf("Are you sure you want to close this session?%s%s",
+        msg = dupprintf("您确定要关闭此会话吗？%s%s",
                         additional ? "\n" : "",
                         additional ? additional : "");
         if (wgs->session_closed ||

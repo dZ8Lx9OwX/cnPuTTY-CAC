@@ -5,7 +5,7 @@
 #include "rcstuff.h"
 
 #define APPNAME "PuTTYimp"
-#define APPDESC "PuTTY key import utility"
+#define APPDESC "PuTTY密钥导入实用程序"
 
 200 ICON "puttygen.ico"
 

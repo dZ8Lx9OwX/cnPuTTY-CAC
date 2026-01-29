@@ -120,14 +120,14 @@ static SeatPromptResult ssh2_transport_confirm_weak_crypto_primitive(
     const void *alg, WeakCryptoReason wcr);
 
 static const char *const kexlist_descr[NKEXLIST] = {
-    "key exchange algorithm",
-    "host key algorithm",
-    "client-to-server cipher",
-    "server-to-client cipher",
+    "密钥交换算法",
+    "主机密钥算法",
+    "client-to-server 加密",
+    "server-to-client 加密",
     "client-to-server MAC",
     "server-to-client MAC",
-    "client-to-server compression method",
-    "server-to-client compression method"
+    "client-to-server 压缩方法",
+    "server-to-client 压缩方法"
 };
 
 static int weak_algorithm_compare(void *av, void *bv);
@@ -1635,7 +1635,7 @@ static void ssh2_transport_process_queue(PacketProtocolLayer *ppl)
 
     if (s->warn_kex) {
         s->spr = ssh2_transport_confirm_weak_crypto_primitive(
-            s, "key-exchange algorithm", s->kex_alg->name, s->kex_alg,
+            s, "密钥交换算法", s->kex_alg->name, s->kex_alg,
             WCR_BELOW_THRESHOLD);
         crMaybeWaitUntilV(s->spr.kind != SPRK_INCOMPLETE);
         if (spr_is_abort(s->spr)) {
@@ -1687,7 +1687,7 @@ static void ssh2_transport_process_queue(PacketProtocolLayer *ppl)
             /* If none exist, use the more general 'weak crypto'
              * warning prompt */
             s->spr = ssh2_transport_confirm_weak_crypto_primitive(
-                s, "host key type", s->hostkey_alg->ssh_id,
+                s, "主机密钥类型", s->hostkey_alg->ssh_id,
                 s->hostkey_alg, WCR_BELOW_THRESHOLD);
         }
         crMaybeWaitUntilV(s->spr.kind != SPRK_INCOMPLETE);
@@ -1699,7 +1699,7 @@ static void ssh2_transport_process_queue(PacketProtocolLayer *ppl)
 
     if (s->warn_cscipher) {
         s->spr = ssh2_transport_confirm_weak_crypto_primitive(
-            s, "client-to-server cipher", s->out.cipher->ssh2_id,
+            s, " client-to-server 加密", s->out.cipher->ssh2_id,
             s->out.cipher, WCR_BELOW_THRESHOLD);
         crMaybeWaitUntilV(s->spr.kind != SPRK_INCOMPLETE);
         if (spr_is_abort(s->spr)) {
@@ -1710,7 +1710,7 @@ static void ssh2_transport_process_queue(PacketProtocolLayer *ppl)
 
     if (s->warn_sccipher) {
         s->spr = ssh2_transport_confirm_weak_crypto_primitive(
-            s, "server-to-client cipher", s->in.cipher->ssh2_id,
+            s, " server-to-client 加密", s->in.cipher->ssh2_id,
             s->in.cipher, WCR_BELOW_THRESHOLD);
         crMaybeWaitUntilV(s->spr.kind != SPRK_INCOMPLETE);
         if (spr_is_abort(s->spr)) {
@@ -1733,7 +1733,7 @@ static void ssh2_transport_process_queue(PacketProtocolLayer *ppl)
 
         if (s->terrapin.csvuln) {
             s->spr = ssh2_transport_confirm_weak_crypto_primitive(
-                s, "client-to-server cipher", s->terrapin.csvuln,
+                s, "client-to-server 加密", s->terrapin.csvuln,
                 terrapin_weakness, s->terrapin.wcr);
             crMaybeWaitUntilV(s->spr.kind != SPRK_INCOMPLETE);
             if (spr_is_abort(s->spr)) {
@@ -1744,7 +1744,7 @@ static void ssh2_transport_process_queue(PacketProtocolLayer *ppl)
 
         if (s->terrapin.scvuln) {
             s->spr = ssh2_transport_confirm_weak_crypto_primitive(
-                s, "server-to-client cipher", s->terrapin.scvuln,
+                s, "server-to-client 加密", s->terrapin.scvuln,
                 terrapin_weakness, s->terrapin.wcr);
             crMaybeWaitUntilV(s->spr.kind != SPRK_INCOMPLETE);
             if (spr_is_abort(s->spr)) {
@@ -2409,14 +2409,14 @@ static bool ssh2_transport_get_specials(
             need_separator = false;
         }
 
-        add_special(ctx, "Repeat key exchange", SS_REKEY, 0);
+        add_special(ctx, "重复密钥交换", SS_REKEY, 0);
         toret = true;
 
         if (s->n_uncert_hostkeys) {
             int i;
 
             add_special(ctx, NULL, SS_SEP, 0);
-            add_special(ctx, "Cache new host key type", SS_SUBMENU, 0);
+            add_special(ctx, "缓存新的主机密钥类型", SS_SUBMENU, 0);
             for (i = 0; i < s->n_uncert_hostkeys; i++) {
                 const ssh_keyalg *alg =
                     ssh2_hostkey_algs[s->uncert_hostkeys[i]].alg;

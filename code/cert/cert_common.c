@@ -133,11 +133,11 @@ LPSTR cert_prompt(LPCSTR szIden, BOOL bAutoSelect, LPCWSTR sCustomPrompt)
 	{
 		// display the certificate selection dialog
 		pCertContext = CryptUIDlgSelectCertificateFromStore(hMemoryStore, GetForegroundWindow(),
-			L"PuTTY: Select Certificate Or Key",
+			L"PuTTY：选择证书或密钥",
 			sCustomPrompt != NULL ? sCustomPrompt : (
-				L"Please select the certificate or key identifier that you would like " \
-				L"to use for authentication to the remote system. For FIDO keys, PuTTY has " \
-				L"generated a dynamic certificate to represent the key within PuTTY."),
+				L"请选择您想要使用的证书或密钥标识符，" \
+				L"用于对远程系统进行身份验证。对于FIDO密钥，" \
+				L"PuTTY生成了一个动态证书来表示PuTTY中的密钥。"),
 			CRYPTUI_SELECT_LOCATION_COLUMN, 0, NULL);
 	}
 
@@ -206,11 +206,11 @@ BOOL cert_confirm_signing(LPCSTR sFingerPrint, LPCSTR sComment)
 	BOOL bIsCert = cert_is_certpath(sComment);
 	LPSTR sDescription = bIsCert ? cert_subject_string(sComment) : dupstr(sComment);
 	LPSTR sMessage = dupprintf("%s\r\n\r\n%s: %s\r\n%s: %s\r\n\r\n % s",
-		"An application is attempting to authenticate using a certificate or key with the following details:",
-		bIsCert ? "Subject" : "Comment", sDescription,
-		"Fingerprint", sFingerPrint,
-		"Would you like to permit this signing operation?");
-	int iResponse = MessageBox(NULL, sMessage, "Certificate & Key Usage Confirmation - Pageant",
+		"应用程序正在尝试使用具有以下详细信息的证书或密钥进行身份验证：",
+		bIsCert ? "使用者" : "注释", sDescription,
+		"指纹", sFingerPrint,
+		"是否允许此签名操作？？");
+	int iResponse = MessageBox(NULL, sMessage, "证书和密钥使用确认-Pageant",
 		MB_SYSTEMMODAL | MB_ICONQUESTION | MB_YESNO);
 	sfree(sMessage);
 	sfree(sDescription);
@@ -560,7 +560,7 @@ VOID cert_display_cert(LPCSTR szCert, HWND hWnd)
 
 	// display cert ui
 	CryptUIDlgViewContext(CERT_STORE_CERTIFICATE_CONTEXT,
-		pCertContext, hWnd, L"PuTTY Certificate Display", 0, NULL);
+		pCertContext, hWnd, L"PuTTY证书显示", 0, NULL);
 
 	// cleanup
 	CertFreeCertificateContext(pCertContext);
@@ -876,12 +876,12 @@ PVOID cert_pin(LPSTR szCert, BOOL bWide, LPVOID szPin)
 	CREDUI_INFOW tCredInfo;
 	ZeroMemory(&tCredInfo, sizeof(CREDUI_INFOW));
 	tCredInfo.cbSize = sizeof(tCredInfo);
-	tCredInfo.pszCaptionText = L"PuTTY Authentication";
-	tCredInfo.pszMessageText = L"Please Enter Your Smart Card Credentials";
+	tCredInfo.pszCaptionText = L"PuTTY身份验证";
+	tCredInfo.pszMessageText = L"请输入智能卡凭证";
 	tCredInfo.hwndParent = GetDesktopWindow();
-	WCHAR szUserName[CREDUI_MAX_USERNAME_LENGTH + 1] = L"<Using Smart Card>";
+	WCHAR szUserName[CREDUI_MAX_USERNAME_LENGTH + 1] = L"<使用智能卡>";
 	WCHAR szPassword[CREDUI_MAX_PASSWORD_LENGTH + 1] = L"";
-	if (CredUIPromptForCredentialsW(&tCredInfo, L"Smart Card", NULL, 0, szUserName,
+	if (CredUIPromptForCredentialsW(&tCredInfo, L"智能卡", NULL, 0, szUserName,
 		_countof(szUserName), szPassword, _countof(szPassword), NULL,
 		CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_KEEP_USERNAME) != ERROR_SUCCESS)
 	{

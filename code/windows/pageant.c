@@ -155,7 +155,7 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
         char *text = dupprintf(
             "Pageant\r\n\r\n%s\r\n\r\n%s\r\n\r\n%s",
             ver, buildinfo_text,
-            "\251 " SHORT_COPYRIGHT_DETAILS ". All rights reserved.");
+            "(C)" SHORT_COPYRIGHT_DETAILS " 保留所有权利。");
         sfree(buildinfo_text);
         SetDlgItemText(hwnd, IDC_ABOUT_TEXTBOX, text);
         MakeDlgItemBorderless(hwnd, IDC_ABOUT_TEXTBOX);
@@ -417,9 +417,9 @@ static void keylist_update_callback(
     if (ctx->hashwidth < sz.cx) ctx->hashwidth = sz.cx;
 
     if (ext_flags & LIST_EXTENDED_FLAG_HAS_NO_CLEARTEXT_KEY) {
-        put_fmt(disp->info, "(encrypted)");
+        put_fmt(disp->info, "(加密的)");
     } else if (ext_flags & LIST_EXTENDED_FLAG_HAS_ENCRYPTED_KEY_FILE) {
-        put_fmt(disp->info, "(re-encryptable)");
+        put_fmt(disp->info, "(已解密)");
 
         /* At least one key can be re-encrypted */
         ctx->enable_reencrypt_controls = true;
@@ -592,7 +592,7 @@ static void prompt_add_keyfile(bool encrypted)
         keypath = filereq_saved_dir_new();
 
     struct request_multi_file_return *rmf = request_multi_file(
-        traywindow, "Select Private Key File", NULL, false,
+        traywindow, "选择私钥文件", NULL, false,
         keypath, true, FILTER_KEY_FILES);
 
     if (rmf) {
@@ -617,8 +617,8 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
     } fptypes[] = {
         {"SHA256", SSH_FPTYPE_SHA256},
         {"MD5", SSH_FPTYPE_MD5},
-        {"SHA256 including certificate", SSH_FPTYPE_SHA256_CERT},
-        {"MD5 including certificate", SSH_FPTYPE_MD5_CERT},
+        {"SHA256(含证书)", SSH_FPTYPE_SHA256_CERT},
+        {"MD5   (含证书)", SSH_FPTYPE_MD5_CERT},
     };
 
     switch (msg) {
@@ -1045,7 +1045,7 @@ static BOOL AddTrayIcon(HWND hwnd)
     tnid.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     tnid.uCallbackMessage = WM_SYSTRAY;
     tnid.hIcon = hicon = LoadIcon(hinst, MAKEINTRESOURCE(201));
-    strcpy(tnid.szTip, "Pageant (PuTTY authentication agent)");
+    strcpy(tnid.szTip, "Pageant(PuTTY身份验证代理)");
 
     res = Shell_NotifyIcon(NIM_ADD, &tnid);
 
@@ -1106,7 +1106,7 @@ static void update_sessions(void)
         mii.fMask = MIIM_TYPE | MIIM_STATE;
         mii.fType = MFT_STRING;
         mii.fState = MFS_GRAYED;
-        mii.dwTypeData = _T("(No sessions)");
+        mii.dwTypeData = _T("(暂无会话)");
         InsertMenuItem(session_menu, index_menu, true, &mii);
     }
 }
@@ -2119,7 +2119,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
      */
     if (already_running) {
         if (!command && !nclkeys) {
-            MessageBox(NULL, "Pageant is already running", "Pageant Error",
+            MessageBox(NULL, "Pageant已经在运行中", "cnPageant错误",
                        MB_ICONERROR | MB_OK);
         }
         return 0;
@@ -2132,9 +2132,9 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
     systray_menu = CreatePopupMenu();
     if (putty_path) {
         session_menu = CreateMenu();
-        AppendMenu(systray_menu, MF_ENABLED, IDM_PUTTY, "&New Session");
+        AppendMenu(systray_menu, MF_ENABLED, IDM_PUTTY, "新建会话(&N)");
         AppendMenu(systray_menu, MF_POPUP | MF_ENABLED,
-                   (UINT_PTR) session_menu, "&Saved Sessions");
+                   (UINT_PTR) session_menu, "保存会话(&S)");
         AppendMenu(systray_menu, MF_SEPARATOR, 0, 0);
     }
 #ifdef PUTTY_CAC
@@ -2175,39 +2175,39 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
         sfree(szKey);
     }
 
-    AppendMenu(systray_menu, MF_ENABLED, IDM_VIEWKEYS, "&View Keys && Certs");
-	AppendMenu(systray_menu, MF_ENABLED, IDM_ADDKEY, "Add PuTTY &Key");
-    AppendMenu(systray_menu, MF_ENABLED, IDM_ADDKEY_ENCRYPTED, "Add PuTTY Key (Encrypted)");
-	AppendMenu(systray_menu, MF_ENABLED, IDM_ADDCAPI, "Add &CAPI Cert");
-	AppendMenu(systray_menu, MF_ENABLED, IDM_ADDPKCS, "Add &PKCS Cert");
-    AppendMenu(systray_menu, MF_ENABLED, IDM_ADDFIDO, "Add &FIDO Key");
+    AppendMenu(systray_menu, MF_ENABLED, IDM_VIEWKEYS, "查看密钥/证书");
+	AppendMenu(systray_menu, MF_ENABLED, IDM_ADDKEY, "添加PuTTY密钥");
+    AppendMenu(systray_menu, MF_ENABLED, IDM_ADDKEY_ENCRYPTED, "添加PuTTY加密密钥");
+	AppendMenu(systray_menu, MF_ENABLED, IDM_ADDCAPI, "添加CAPI证书");
+	AppendMenu(systray_menu, MF_ENABLED, IDM_ADDPKCS, "添加PKCS证书");
+    AppendMenu(systray_menu, MF_ENABLED, IDM_ADDFIDO, "添加FIDO密钥");
 	AppendMenu(systray_menu, MF_SEPARATOR, 0, NULL);
-	AppendMenu(systray_menu, cert_menu_flags(cert_auto_load_certs), IDM_AUTOCERT, "Autoload Certs && Keys");
-	AppendMenu(systray_menu, cert_menu_flags(cert_save_cert_list_enabled), IDM_SAVELIST, "Remember Certs && Keys");
-	AppendMenu(systray_menu, cert_menu_flags(cert_cache_enabled), IDM_PINCACHE, "Force PIN Caching");
-	AppendMenu(systray_menu, cert_menu_flags(cert_auth_prompting), IDM_CERTAUTH, "Cert && Key Auth Prompting");
+	AppendMenu(systray_menu, cert_menu_flags(cert_auto_load_certs), IDM_AUTOCERT, "自动加载密钥/证书");
+	AppendMenu(systray_menu, cert_menu_flags(cert_save_cert_list_enabled), IDM_SAVELIST, "记录密钥/证书");
+	AppendMenu(systray_menu, cert_menu_flags(cert_cache_enabled), IDM_PINCACHE, "强制PIN缓存");
+	AppendMenu(systray_menu, cert_menu_flags(cert_auth_prompting), IDM_CERTAUTH, "密钥/证书身份验证提示");
 	AppendMenu(systray_menu, MF_SEPARATOR, 0, NULL);
-	AppendMenu(systray_menu, cert_menu_flags(cert_smartcard_certs_only), IDM_SCONLY, "Filter: Smart Card Logon Certs");
-    AppendMenu(systray_menu, cert_menu_flags(cert_trusted_certs_only), IDM_TRUSTED, "Filter: Trusted Certs");
-	AppendMenu(systray_menu, cert_menu_flags(cert_ignore_expired_certs), IDM_NOEXPR, "Filter: No Expired Certs");
+	AppendMenu(systray_menu, cert_menu_flags(cert_smartcard_certs_only), IDM_SCONLY, "筛选:智能卡登录证书");
+    AppendMenu(systray_menu, cert_menu_flags(cert_trusted_certs_only), IDM_TRUSTED, "筛选:受信任的证书");
+	AppendMenu(systray_menu, cert_menu_flags(cert_ignore_expired_certs), IDM_NOEXPR, "筛选:未过期证书");
 #else 
     AppendMenu(systray_menu, MF_ENABLED, IDM_VIEWKEYS,
-               "&View Keys");
-    AppendMenu(systray_menu, MF_ENABLED, IDM_ADDKEY, "Add &Key");
+               "查看密钥");
+    AppendMenu(systray_menu, MF_ENABLED, IDM_ADDKEY, "添加密钥");
     AppendMenu(systray_menu, MF_ENABLED, IDM_ADDKEY_ENCRYPTED,
-               "Add key (encrypted)");
+               "添加加密密钥");
 #endif // PUTTY_CAC
     AppendMenu(systray_menu, MF_SEPARATOR, 0, 0);
     AppendMenu(systray_menu, MF_ENABLED, IDM_REMOVE_ALL,
-               "Remove All Keys");
+               "删除所有密钥");
     AppendMenu(systray_menu, MF_ENABLED, IDM_REENCRYPT_ALL,
-               "Re-encrypt All Keys");
+               "重新加密所有密钥");
     AppendMenu(systray_menu, MF_SEPARATOR, 0, 0);
     if (has_help())
-        AppendMenu(systray_menu, MF_ENABLED, IDM_HELP, "&Help");
-    AppendMenu(systray_menu, MF_ENABLED, IDM_ABOUT, "&About");
+        AppendMenu(systray_menu, MF_ENABLED, IDM_HELP, "帮助(&H)");
+    AppendMenu(systray_menu, MF_ENABLED, IDM_ABOUT, "关于(&A)");
     AppendMenu(systray_menu, MF_SEPARATOR, 0, 0);
-    AppendMenu(systray_menu, MF_ENABLED, IDM_CLOSE, "E&xit");
+    AppendMenu(systray_menu, MF_ENABLED, IDM_CLOSE, "退出(&X)");
     initial_menuitems_count = GetMenuItemCount(session_menu);
 
     /* Set the default menu item. */

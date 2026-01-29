@@ -144,7 +144,7 @@ static char *serial_configure(Serial *serial, HANDLE serport, Conf *conf)
         logeventf(serial->logctx, "Configuring %s", str);
 
         switch (conf_get_int(conf, CONF_serparity)) {
-          case SER_PAR_NONE: dcb.Parity = NOPARITY; str = "no"; break;
+          case SER_PAR_NONE: dcb.Parity = NOPARITY; str = "暂无"; break;
           case SER_PAR_ODD: dcb.Parity = ODDPARITY; str = "odd"; break;
           case SER_PAR_EVEN: dcb.Parity = EVENPARITY; str = "even"; break;
           case SER_PAR_MARK: dcb.Parity = MARKPARITY; str = "mark"; break;
@@ -154,7 +154,7 @@ static char *serial_configure(Serial *serial, HANDLE serport, Conf *conf)
 
         switch (conf_get_int(conf, CONF_serflow)) {
           case SER_FLOW_NONE:
-            str = "no";
+            str = "暂无";
             break;
           case SER_FLOW_XONXOFF:
             dcb.fOutX = dcb.fInX = true;
@@ -382,7 +382,7 @@ static void serial_special(Backend *be, SessionSpecialCode code, int arg)
 static const SessionSpecial *serial_get_specials(Backend *be)
 {
     static const SessionSpecial specials[] = {
-        {"Break", SS_BRK},
+        {"中断", SS_BRK},
         {NULL, SS_EXITMENU}
     };
     return specials;
@@ -453,7 +453,7 @@ const BackendVtable serial_backend = {
     .unthrottle = serial_unthrottle,
     .cfg_info = serial_cfg_info,
     .id = "serial",
-    .displayname_tc = "Serial",
+    .displayname_tc = "串口",
     .displayname_lc = "serial",
     .protocol = PROT_SERIAL,
     .serial_parity_mask = ((1 << SER_PAR_NONE) |

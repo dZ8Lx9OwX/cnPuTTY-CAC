@@ -219,7 +219,7 @@ static char *events_initial[LOGEVENT_INITIAL_MAX];
 static char *events_circular[LOGEVENT_CIRCULAR_MAX];
 static int ninitial = 0, ncircular = 0, circular_first = 0;
 
-#define PRINTER_DISABLED_STRING "None (printing disabled)"
+#define PRINTER_DISABLED_STRING "无输出(禁止打印)"
 
 void force_normal(HWND hwnd)
 {
@@ -339,7 +339,7 @@ static INT_PTR CALLBACK LicenceProc(HWND hwnd, UINT msg,
 {
     switch (msg) {
       case WM_INITDIALOG: {
-        char *str = dupprintf("%s Licence", appname);
+        char *str = dupprintf("%s 许可证", appname);
         SetWindowText(hwnd, str);
         sfree(str);
         SetDlgItemText(hwnd, IDA_TEXT, LICENCE_TEXT("\r\n\r\n"));
@@ -367,14 +367,14 @@ static INT_PTR CALLBACK AboutProc(HWND hwnd, UINT msg,
 
     switch (msg) {
       case WM_INITDIALOG: {
-        str = dupprintf("About %s", appname);
+        str = dupprintf("关于%s", appname);
         SetWindowText(hwnd, str);
         sfree(str);
         char *buildinfo_text = buildinfo("\r\n");
         char *text = dupprintf(
             "%s\r\n\r\n%s\r\n\r\n%s\r\n\r\n%s",
             appname, ver, buildinfo_text,
-            "\251 " SHORT_COPYRIGHT_DETAILS ". All rights reserved.");
+            "(C)" SHORT_COPYRIGHT_DETAILS " 保留所有权利。");
         sfree(buildinfo_text);
         SetDlgItemText(hwnd, IDA_TEXT, text);
         MakeDlgItemBorderless(hwnd, IDA_TEXT);
@@ -504,7 +504,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
             r.top = 3;
             r.bottom = r.top + 10;
             MapDialogRect(hwnd, &r);
-            tvstatic = CreateWindowEx(0, "STATIC", "Cate&gory:",
+            tvstatic = CreateWindowEx(0, "STATIC", "分类：",
                                       WS_CHILD | WS_VISIBLE,
                                       r.left, r.top,
                                       r.right - r.left, r.bottom - r.top,
@@ -516,7 +516,7 @@ static INT_PTR GenericMainDlgProc(HWND hwnd, UINT msg, WPARAM wParam,
             r.left = 3;
             r.right = r.left + 95;
             r.top = 13;
-            r.bottom = r.top + 219;
+            r.bottom = r.top + 227;
             MapDialogRect(hwnd, &r);
             treeview = CreateWindowEx(WS_EX_CLIENTEDGE, WC_TREEVIEW, "",
                                       WS_CHILD | WS_VISIBLE |
@@ -718,7 +718,7 @@ bool do_config(Conf *conf)
     setup_config_box(pds->ctrlbox, false, 0, 0);
     win_setup_config_box(pds->ctrlbox, &pds->dp->hwnd, has_help(), false, 0);
 
-    pds->dp->wintitle = dupprintf("%s Configuration", appname);
+    pds->dp->wintitle = dupprintf("%s 配置", appname);
     pds->dp->data = conf;
 
     dlg_auto_set_fixed_pitch_flag(pds->dp);
@@ -747,7 +747,7 @@ bool do_reconfig(HWND hwnd, Conf *conf, int protcfginfo)
     win_setup_config_box(pds->ctrlbox, &pds->dp->hwnd, has_help(),
                          true, protocol);
 
-    pds->dp->wintitle = dupprintf("%s Reconfiguration", appname);
+    pds->dp->wintitle = dupprintf("%s 重新配置", appname);
     pds->dp->data = conf;
 
     dlg_auto_set_fixed_pitch_flag(pds->dp);
@@ -1133,12 +1133,12 @@ static INT_PTR HostKeyDialogProc(HWND hwnd, UINT msg,
 const SeatDialogPromptDescriptions *win_seat_prompt_descriptions(Seat *seat)
 {
     static const SeatDialogPromptDescriptions descs = {
-        .hk_accept_action = "press \"Accept\"",
-        .hk_connect_once_action = "press \"Connect Once\"",
-        .hk_cancel_action = "press \"Cancel\"",
-        .hk_cancel_action_Participle = "Pressing \"Cancel\"",
-        .weak_accept_action = "press \"Yes\"",
-        .weak_cancel_action = "press \"No\"",
+        .hk_accept_action = "选择 \"接受\"",
+        .hk_connect_once_action = "选择 \"连接一次\"",
+        .hk_cancel_action = "选择 \"取消\"",
+        .hk_cancel_action_Participle = "选择 \"取消\"",
+        .weak_accept_action = "选择 \"是(Y)\"",
+        .weak_cancel_action = "选择 \"否(N)\"",
     };
     return &descs;
 }
@@ -1217,12 +1217,12 @@ static int win_gui_askappend(LogPolicy *lp, Filename *filename,
                              void *ctx)
 {
     static const char msgtemplate[] =
-        "The session log file \"%.*s\" already exists.\n"
-        "You can overwrite it with a new session log,\n"
-        "append your session log to the end of it,\n"
-        "or disable session logging for this session.\n"
-        "Hit Yes to wipe the file, No to append to it,\n"
-        "or Cancel to disable logging.";
+        "会话日志文件\"%.*s\"已存在。\n"
+        "您可以用新的会话日志覆盖它，\n"
+        "或者将新的会话日志附加到它的末尾，\n"
+        "或者禁止此次会话的日志记录。\n"
+        "选择“是”擦除文件，“否”追加到末尾，\n"
+        "或者“取消”禁用此次日志记录。";
     char *message;
     char *mbtitle;
     int mbret;

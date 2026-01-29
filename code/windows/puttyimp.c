@@ -8,7 +8,7 @@
 #include <wincred.h>
 #include <aclapi.h>
 #include <setupapi.h>
-#include <initguid.h> 
+#include <initguid.h>
 #include <devpkey.h>
 #include <fido/credman.h>
 
@@ -41,7 +41,7 @@ enum
 
 BOOL GrantAccessToDevice(LPCWSTR sDevicePath)
 {
-	// get device security information 
+	// get device security information
 	DEVPROPTYPE devPropType = 0;
 	WCHAR aSDDL[1024];
 	PSECURITY_DESCRIPTOR pSecurityDescriptor = &aSDDL[0];
@@ -127,12 +127,12 @@ LPCSTR GetTokenPin()
 	CREDUI_INFOW tCredInfo;
 	ZeroMemory(&tCredInfo, sizeof(CREDUI_INFOW));
 	tCredInfo.cbSize = sizeof(tCredInfo);
-	tCredInfo.pszCaptionText = L"Enter Token PIN";
-	tCredInfo.pszMessageText = L"Please enter the PIN for the FIDO token. This will be used to " \
-		L"query the token and cache all public keys assocatied with existing resident keys. ";
+	tCredInfo.pszCaptionText = L"请输入令牌密码";
+	tCredInfo.pszMessageText = L"请输入FIDO令牌的PIN码. 这将用于查询令牌并" \
+		L"缓存与现有驻留密钥共享的所有公钥.";
 	WCHAR sUserName[CREDUI_MAX_USERNAME_LENGTH + 1] = L"<Using Token>";
 	WCHAR sPIN[CREDUI_MAX_PASSWORD_LENGTH + 1] = L"";
-	if (CredUIPromptForCredentialsW(&tCredInfo, L"Enter PIN", NULL, 0, &sUserName[0],
+	if (CredUIPromptForCredentialsW(&tCredInfo, L"输入密码", NULL, 0, &sUserName[0],
 		_countof(sUserName), &sPIN[0], _countof(sPIN), NULL,
 		CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_DO_NOT_PERSIST | CREDUI_FLAGS_EXCLUDE_CERTIFICATES | CREDUI_FLAGS_KEEP_USERNAME | CREDUI_FLAGS_ALWAYS_SHOW_UI) != ERROR_SUCCESS)
 	{
@@ -180,7 +180,7 @@ int wmain(int iArgc, WCHAR** sArgv)
 		{
 			return __LINE__;
 		}
-		
+
 		if (iArgc == 4) sSidToModify = sArgv[2];
 	}
 
@@ -229,9 +229,9 @@ int wmain(int iArgc, WCHAR** sArgv)
 		{
 			// parse the device id to reconstruct from the fido dev path
 			CHAR sVid[9] = "", sPid[9] = "", sId[64] = "";
-			if (sscanf(fido_dev_info_path(tDeviceInfo), 
+			if (sscanf(fido_dev_info_path(tDeviceInfo),
 				"\\\\?\\hid#%8[^&]&%8[^#]#%64[^#]#{", sVid, sPid, sId) != 3) continue;
-		
+
 			// reconstruct the path to open the device handle
 			WCHAR sDevicePath[128] = L"";
 			wsprintfW(sDevicePath, L"HID\\%S&%S\\%S", _strupr(sVid), _strupr(sPid), _strupr(sId));
@@ -320,7 +320,7 @@ int wmain(int iArgc, WCHAR** sArgv)
 								continue;
 							}
 
-							// get the public key associated with this credential 
+							// get the public key associated with this credential
 							const unsigned char* aPubKeyData = fido_cred_pubkey_ptr(tCred);
 							size_t iPubKeyLen = fido_cred_pubkey_len(tCred);
 							const unsigned char* aCredId = fido_cred_id_ptr(tCred);
@@ -361,13 +361,13 @@ int wmain(int iArgc, WCHAR** sArgv)
 	WCHAR sMessageToDisplay[64];
 	if (iOperationMode == MODE_IMPORT)
 	{
-		swprintf_s(&sMessageToDisplay[0], _countof(sMessageToDisplay), L"Total Keys Imported: %zu", iKeyCount);
-		MessageBoxW(NULL, &sMessageToDisplay[0], L"Import Summary", MB_OK);
+		swprintf_s(&sMessageToDisplay[0], _countof(sMessageToDisplay), L"导入密钥总计：%zu", iKeyCount);
+		MessageBoxW(NULL, &sMessageToDisplay[0], L"导入摘要", MB_OK);
 	}
 	if (iOperationMode == MODE_DELETE)
 	{
-		swprintf_s(&sMessageToDisplay[0], _countof(sMessageToDisplay), L"Total Keys Deleted: %zu", iKeyCount);
-		MessageBoxW(NULL, &sMessageToDisplay[0], L"Deletion Summary", MB_OK);
+		swprintf_s(&sMessageToDisplay[0], _countof(sMessageToDisplay), L"删除密钥总计：%zu", iKeyCount);
+		MessageBoxW(NULL, &sMessageToDisplay[0], L"删除摘要", MB_OK);
 	}
 
 	fido_dev_info_free(&tDevList, 64);

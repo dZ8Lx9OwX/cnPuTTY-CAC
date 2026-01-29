@@ -10,7 +10,7 @@ char *buildinfo(const char *newline)
 {
     strbuf *buf = strbuf_new();
 
-    put_fmt(buf, "Build platform: %d-bit %s",
+    put_fmt(buf, "构建平台：%d 位 %s",
             (int)(CHAR_BIT * sizeof(void *)), BUILDINFO_PLATFORM);
 
 #ifdef __clang_version__
@@ -18,13 +18,13 @@ char *buildinfo(const char *newline)
     put_fmt(buf, "%sCompiler: clang %s", newline, __clang_version__);
 #elif defined __GNUC__ && defined __VERSION__
 #define FOUND_COMPILER
-    put_fmt(buf, "%sCompiler: gcc %s", newline, __VERSION__);
+    put_fmt(buf, "%s编译器：gcc %s", newline, __VERSION__);
 #endif
 
 #if defined _MSC_VER
 #ifndef FOUND_COMPILER
 #define FOUND_COMPILER
-    put_fmt(buf, "%sCompiler: ", newline);
+    put_fmt(buf, "%s编译器：", newline);
 #else
     put_fmt(buf, ", emulating ");
 #endif
@@ -129,7 +129,7 @@ char *buildinfo(const char *newline)
 #elif _MSC_VER == 1200
     put_fmt(buf, " 6.0");
 #else
-    put_fmt(buf, ", unrecognised version");
+    put_fmt(buf, ", 未知版本");
 #endif
     put_fmt(buf, ", _MSC_VER=%d", (int)_MSC_VER);
 #ifdef _MSC_FULL_VER
@@ -151,7 +151,7 @@ char *buildinfo(const char *newline)
     {
         int echm = has_embedded_chm();
         if (echm >= 0)
-            put_fmt(buf, "%sEmbedded HTML Help file: %s", newline,
+            put_fmt(buf, "%sHTML帮助文档：%s", newline,
                     echm ? "yes" : "no");
     }
 #endif
@@ -178,7 +178,7 @@ char *buildinfo(const char *newline)
     put_fmt(buf, "%sBuild option: DEBUG", newline);
 #endif
 
-    put_fmt(buf, "%sSource commit: %s", newline, commitid);
+    put_fmt(buf, "%s源代码：%s", newline, commitid);
 
     return strbuf_to_str(buf);
 }

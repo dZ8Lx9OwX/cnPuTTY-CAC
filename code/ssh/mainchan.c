@@ -448,7 +448,7 @@ static bool mainchan_rcvd_exit_signal(
         signame_str = dupprintf("unrecognised signal \"%.*s\"",
                                 PTRLEN_PRINTF(signame));
     else
-        signame_str = dupprintf("signal SIG%.*s", PTRLEN_PRINTF(signame));
+        signame_str = dupprintf("信号 SIG%.*s", PTRLEN_PRINTF(signame));
     mainchan_log_exit_signal_common(mc, signame_str, core_dumped, msg);
     sfree(signame_str);
     return true;
@@ -462,7 +462,7 @@ static bool mainchan_rcvd_exit_signal_numeric(
     char *signum_str;
 
     ssh_got_exitcode(mc->ppl->ssh, 128 + signum);
-    signum_str = dupprintf("signal %d", signum);
+    signum_str = dupprintf("信号 %d", signum);
     mainchan_log_exit_signal_common(mc, signum_str, core_dumped, msg);
     sfree(signum_str);
     return true;
@@ -473,7 +473,7 @@ void mainchan_get_specials(
 {
     /* FIXME: this _does_ depend on whether these services are supported */
 
-    add_special(ctx, "Break", SS_BRK, 0);
+    add_special(ctx, "Break (中断)", SS_BRK, 0);
 
     #define SIGNAL_MAIN(name, desc) \
     add_special(ctx, "SIG" #name " (" desc ")", SS_SIG ## name, 0);
@@ -482,7 +482,7 @@ void mainchan_get_specials(
     #undef SIGNAL_MAIN
     #undef SIGNAL_SUB
 
-    add_special(ctx, "More signals", SS_SUBMENU, 0);
+    add_special(ctx, "更多信号", SS_SUBMENU, 0);
 
     #define SIGNAL_MAIN(name, desc)
     #define SIGNAL_SUB(name) \

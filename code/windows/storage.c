@@ -19,7 +19,7 @@
 #endif
 
 static const char *const reg_jumplist_key = PUTTY_REG_POS "\\Jumplist";
-static const char *const reg_jumplist_value = "Recent sessions";
+static const char *const reg_jumplist_value = "最近会话";
 static const char *const puttystr = PUTTY_REG_POS "\\Sessions";
 static const char *const host_ca_key = PUTTY_REG_POS "\\SshHostCAs";
 
@@ -37,7 +37,7 @@ settings_w *open_settings_w(const char *sessionname, char **errmsg)
     *errmsg = NULL;
 
     if (!sessionname || !*sessionname)
-        sessionname = "Default Settings";
+        sessionname = "默认设置";
 
     strbuf *sb = strbuf_new();
     escape_registry_key(sessionname, sb);
@@ -81,7 +81,7 @@ struct settings_r {
 settings_r *open_settings_r(const char *sessionname)
 {
     if (!sessionname || !*sessionname)
-        sessionname = "Default Settings";
+        sessionname = "默认设置";
 
     strbuf *sb = strbuf_new();
     escape_registry_key(sessionname, sb);

@@ -117,8 +117,8 @@ BOOL LoadDelayLoadedLibaries()
 		if (!bImported)
 		{
 			// notify if webauthn 
-			MessageBoxW(NULL, L"PuTTY CAC FIDO support is not available on this platform.",
-				L"FIDO Not Supported", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
+			MessageBoxW(NULL, L"PuTTY CAC FIDO支持在此平台上不可用。",
+				L"不支持FIDO", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
 		}
 	}
 
@@ -673,19 +673,19 @@ BOOL fido_delete_key(LPCSTR szCert)
 	LocalFree(sSidString);
 
 	// warn user about elevation prompt user
-	MessageBoxW(NULL, L"PuTTY will now launch the PuTTYImp process to delete the " \
-		L"selected key. This may result in an elevation prompt depending your current " \
-		L"system settings.", L"FIDO Key Delete", MB_SYSTEMMODAL | MB_ICONINFORMATION | MB_OK);
+	MessageBoxW(NULL, L"PuTTY现在将启动PuTTYImp进程以删除" \
+		L"所选密钥。根据当前系统设置，这可能会" \
+		L"导致提升权限的提示。", L"FIDO密钥删除", MB_SYSTEMMODAL | MB_ICONINFORMATION | MB_OK);
 
 	// launch importer
 	if ((INT_PTR)ShellExecuteW(GetForegroundWindow(),
 		L"runas", szProgPath, szParams, NULL, SW_SHOW) <= 32)
 	{
 		// notify user upon error
-		MessageBoxW(NULL, L"The PuTTYImp process failed to launch properly. You may "
-			L"have not have the appropriate privileges or PuTTYImp was not found. Please "
-			L"ensure that PuTTYImp.exe is downloaded in same directory as this executable.",
-			L"FIDO Key Importer Failed", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
+		MessageBoxW(NULL, L"PuTTYImp进程未能正确启动。"
+			L"您可能没有适当的权限，或者找不到PuTTYImp。"
+			L"请确保PuTTYImp.exe下载到与此可执行文件相同的目录中。",
+			L"FIDO密钥导入器失败", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
 		return FALSE;
 	}
 
@@ -708,20 +708,20 @@ VOID fido_import_keys()
 	LocalFree(sSidString);
 
 	// warn user about elevation prompt user
-	MessageBoxW(NULL, L"PuTTY will now launch the PuTTYImp process to search for any FIDO " \
-		L"resident keys to import. This requires access to communicate directly with " \
-		L" your key(s) and may result in an elevation prompt depending your current " \
-		L"system settings.", L"FIDO Key Importer", MB_SYSTEMMODAL | MB_ICONINFORMATION | MB_OK);
+	MessageBoxW(NULL, L"PuTTY现在将启动PuTTYImp过程，以搜索要导入" \
+		L"的任何FIDO驻留密钥。这需要直接与密钥通信的访问权限，" \
+		L"并且可能会根据当前系统设置" \
+		L"产生权限提升的提示。", L"FIDO密钥导入器", MB_SYSTEMMODAL | MB_ICONINFORMATION | MB_OK);
 
 	// launch importer
 	if ((INT_PTR) ShellExecuteW(GetForegroundWindow(), 
 		L"runas", szProgPath, szParams, NULL, SW_SHOW) <= 32)
 	{
 		// notify user upon error
-		MessageBoxW(NULL, L"The PuTTYImp process failed to launch properly. You may "
-			L"have not have the appropriate privileges or PuTTYImp was not found. Please "
-			L"ensure that PuTTYImp.exe is downloaded in same directory as this executable.",
-			L"FIDO Key Importer Failed", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
+		MessageBoxW(NULL, L"PuTTYImp进程未能正确启动。"
+			L"您可能没有适当的权限，或者找不到PuTTYImp。"
+			L"请确保PuTTYImp.exe下载到与此可执行文件相同的目录中。",
+			L"FIDO密钥导入器失败", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
 	}
 }
 
@@ -742,8 +742,8 @@ LPSTR fido_import_openssh_key()
 	ZeroMemory(&tFileNameInfo, sizeof(OPENFILENAME));
 	tFileNameInfo.lStructSize = sizeof(OPENFILENAME);
 	tFileNameInfo.hwndOwner = GetForegroundWindow();
-	tFileNameInfo.lpstrFilter = "SSH Key Files (id_*_sk)\0id_*_sk\0All Files (*)\0*\0\0";
-	tFileNameInfo.lpstrTitle = "Please Select SSH Security Key File To Import";
+	tFileNameInfo.lpstrFilter = "SSH密钥文件(id_*_sk)\0id_*_sk\0所有文件(*)\0*\0\0";
+	tFileNameInfo.lpstrTitle = "请选择要导入的SSH安全密钥文件";
 	tFileNameInfo.lpstrInitialDir = szBaseDir;
 	tFileNameInfo.Flags = OFN_FORCESHOWHIDDEN | OFN_FILEMUSTEXIST;
 	tFileNameInfo.lpstrFile = szFile;
@@ -834,10 +834,10 @@ LPSTR fido_import_openssh_key()
 
 VOID fido_clear_keys()
 {
-	if (MessageBoxW(NULL, L"This will delete PuTTY's record of any keys. " \
-		L"Non-resident keys cannot be restored and resident keys will require " \
-		L"local administrative access to import again. Do you wish to continue?",
-		L"FIDO Cache Deletion Warning", MB_SYSTEMMODAL | MB_ICONINFORMATION | MB_YESNO) == IDYES)
+	if (MessageBoxW(NULL, L"这将删除PuTTY的任何密钥记录。" \
+		L"无法还原非驻留密钥，驻留密钥将需要" \
+		L"本地管理员权限才能再次导入。是否要继续？？",
+		L"FIDO缓存删除警告", MB_SYSTEMMODAL | MB_ICONINFORMATION | MB_YESNO) == IDYES)
 	{
 		RegDeleteTreeW(HKEY_CURRENT_USER, FIDO_REG_PUBKEYS);
 		RegDeleteTreeW(HKEY_CURRENT_USER, FIDO_REG_USERVER);

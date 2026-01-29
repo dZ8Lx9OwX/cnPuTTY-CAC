@@ -412,16 +412,16 @@ void setup_ca_config_box(struct controlbox *b)
     /* Action area, with the Done button in it */
     s = ctrl_getset(b, "", "", "");
     ctrl_columns(s, 5, 20, 20, 20, 20, 20);
-    c = ctrl_pushbutton(s, "Done", 'o', HELPCTX(ssh_kex_cert),
+    c = ctrl_pushbutton(s, "完成", 'o', HELPCTX(ssh_kex_cert),
                         ca_ok_handler, P(st));
     c->button.iscancel = true;
     c->column = 4;
 
     /* Load/save box, as similar as possible to the main saved sessions one */
     s = ctrl_getset(b, "Main", "loadsave",
-                    "Load, save or delete a host CA record");
+                    "加载/保存/删除主机CA记录：");
     ctrl_columns(s, 2, 75, 25);
-    c = ctrl_editbox(s, "Name for this CA (shown in log messages)",
+    c = ctrl_editbox(s, "此CA的名称 (显示在日志消息中)",
                      'n', 100, HELPCTX(ssh_kex_cert),
                      ca_name_handler, P(st), P(NULL));
     c->column = 0;
@@ -435,27 +435,27 @@ void setup_ca_config_box(struct controlbox *b)
     c->column = 0;
     c->listbox.height = 6;
     st->ca_reclist = c;
-    c = ctrl_pushbutton(s, "Load", 'l', HELPCTX(ssh_kex_cert),
+    c = ctrl_pushbutton(s, "加载", 'l', HELPCTX(ssh_kex_cert),
                         ca_load_handler, P(st));
     c->column = 1;
-    c = ctrl_pushbutton(s, "Save", 'v', HELPCTX(ssh_kex_cert),
+    c = ctrl_pushbutton(s, "保存", 'v', HELPCTX(ssh_kex_cert),
                         ca_save_handler, P(st));
     c->column = 1;
-    c = ctrl_pushbutton(s, "Delete", 'd', HELPCTX(ssh_kex_cert),
+    c = ctrl_pushbutton(s, "删除", 'd', HELPCTX(ssh_kex_cert),
                         ca_delete_handler, P(st));
     c->column = 1;
 
-    s = ctrl_getset(b, "Main", "pubkey", "Public key for this CA record");
+    s = ctrl_getset(b, "Main", "pubkey", "CA的公钥记录：");
 
     ctrl_columns(s, 2, 75, 25);
-    c = ctrl_editbox(s, "Public key of certification authority", 'k', 100,
+    c = ctrl_editbox(s, "证书颁发机构的公钥", 'k', 100,
                      HELPCTX(ssh_kex_cert), ca_pubkey_edit_handler,
                      P(st), P(NULL));
     c->column = 0;
     st->ca_pubkey_edit = c;
     c = ctrl_filesel(
-        s, "Read from file", NO_SHORTCUT, FILTER_ALL_FILES, false,
-        "Select public key file of certification authority",
+        s, "读取文件", NO_SHORTCUT, FILTER_ALL_FILES, false,
+        "选择证书颁发机构的公钥文件",
         HELPCTX(ssh_kex_cert), ca_pubkey_file_handler, P(st));
     c->fileselect.just_button = true;
     c->align_next_to = st->ca_pubkey_edit;
@@ -464,15 +464,15 @@ void setup_ca_config_box(struct controlbox *b)
     st->ca_pubkey_info = c = ctrl_text(s, " ", HELPCTX(ssh_kex_cert));
     c->text.wrap = false;
 
-    s = ctrl_getset(b, "Main", "options", "What this CA is trusted to do");
+    s = ctrl_getset(b, "Main", "options", "CA的可信度：");
 
-    c = ctrl_editbox(s, "Valid hosts this key is trusted to certify", 'h', 100,
+    c = ctrl_editbox(s, "信任此密钥进行认证的有效主机 [如:(*.a.com || *.b.com) && port:22]", 'h', 100,
                      HELPCTX(ssh_cert_valid_expr), ca_validity_handler,
                      P(st), P(NULL));
     st->ca_validity_edit = c;
 
     ctrl_columns(s, 4, 44, 18, 18, 18);
-    c = ctrl_text(s, "Signature types (RSA keys only):",
+    c = ctrl_text(s, "签名类型(仅限RSA密钥)：",
                   HELPCTX(ssh_cert_rsa_hash));
     c->column = 0;
     dlgcontrol *sigtypelabel = c;
