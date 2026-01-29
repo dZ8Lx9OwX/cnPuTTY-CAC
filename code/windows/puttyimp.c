@@ -129,7 +129,7 @@ LPCSTR GetTokenPin()
 	tCredInfo.cbSize = sizeof(tCredInfo);
 	tCredInfo.pszCaptionText = L"请输入令牌密码";
 	tCredInfo.pszMessageText = L"请输入FIDO令牌的PIN码. 这将用于查询令牌并" \
-		L"缓存与现有驻留密钥共享的所有公钥.";
+		L"缓存现有驻留密钥相关联的所有公钥.";
 	WCHAR sUserName[CREDUI_MAX_USERNAME_LENGTH + 1] = L"<Using Token>";
 	WCHAR sPIN[CREDUI_MAX_PASSWORD_LENGTH + 1] = L"";
 	if (CredUIPromptForCredentialsW(&tCredInfo, L"输入密码", NULL, 0, &sUserName[0],

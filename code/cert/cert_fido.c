@@ -278,9 +278,9 @@ BYTE* cert_fido_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDat
 	return Signature;
 }
 
-BOOL fido_test_hash(LPCSTR szCert, DWORD iHashRequest)
+BOOL cert_fido_test_hash(LPCSTR szCert, DWORD iHashRequest)
 {
-	return FALSE;
+	return TRUE;
 }
 
 BOOL cert_fido_get_cert(PBCRYPT_ECCKEY_BLOB pPubKeyBlob, DWORD iPublicKeyBufferSize, LPWSTR sApplicationId, PCERT_CONTEXT* ppCertCtx)
@@ -305,7 +305,7 @@ BOOL cert_fido_get_cert(PBCRYPT_ECCKEY_BLOB pPubKeyBlob, DWORD iPublicKeyBufferS
 	{
 		// windows does not support eddsa so we mark it ecdsa and adjust in other functions
 		pPubKeyBlob->dwMagic = BCRYPT_ECDSA_PUBLIC_P256_MAGIC;
-		sAlgo = szOID_ED25119;
+		sAlgo = szOID_ED25519;
 		memcpy(pPubKeyBlobTemp, pPubKeyBlob, iPublicKeyBufferSize);
 		pPubKeyBlob = (PBCRYPT_ECCKEY_BLOB)&pPubKeyBlobTemp[0];
 	}
@@ -410,10 +410,11 @@ HCERTSTORE cert_fido_get_cert_store()
 		if (cert_fido_get_cert((PBCRYPT_ECCKEY_BLOB)sPublicKeyBuffer, iPublicKeyBufferSize, sApplicationId, &pCertContext) == TRUE)
 		{
 			CertAddCertificateContextToStore(hStoreHandle, pCertContext, CERT_STORE_ADD_ALWAYS, NULL);
+			CertFreeCertificateContext(pCertContext);
 		}
 	}
 
-	CloseHandle(hEnumKey);
+	RegCloseKey(hEnumKey);
 	return hStoreHandle;
 }
 
@@ -620,6 +621,7 @@ BOOL fido_create_key(LPCSTR szAlgName, LPCSTR szDisplayName, LPCSTR szApplicatio
 
 	// cleanup
 	WebAuthNFreeCredentialAttestation(pParams.ppWebAuthNCredentialAttestation);
+	free(pPublicKey);
 	return TRUE;
 }
 
@@ -645,6 +647,8 @@ LPWSTR fido_get_user_id()
 			// acquire key name using 
 			ConvertSidToStringSidW(pTokenUser->User.Sid, &sSidString);
 		}
+
+		free(pTokenUser);
 	}
 
 	// cleanup and sanity check results
@@ -714,7 +718,7 @@ VOID fido_import_keys()
 		L"产生权限提升的提示。", L"FIDO密钥导入器", MB_SYSTEMMODAL | MB_ICONINFORMATION | MB_OK);
 
 	// launch importer
-	if ((INT_PTR) ShellExecuteW(GetForegroundWindow(), 
+	if ((INT_PTR)ShellExecuteW(GetForegroundWindow(),
 		L"runas", szProgPath, szParams, NULL, SW_SHOW) <= 32)
 	{
 		// notify user upon error
@@ -728,7 +732,7 @@ VOID fido_import_keys()
 LPSTR fido_import_openssh_key()
 {
 	// get the default directory for the file browser
-	char * szBaseDir = dupprintf("%s\\.ssh", getenv("USERPROFILE"));
+	char* szBaseDir = dupprintf("%s\\.ssh", getenv("USERPROFILE"));
 	if (GetFileAttributesA(szBaseDir) == INVALID_FILE_ATTRIBUTES)
 	{
 		sfree(szBaseDir);
@@ -758,7 +762,7 @@ LPSTR fido_import_openssh_key()
 
 	// attempt to get the key
 	Filename* oFile = filename_from_str(szFile);
-	ssh2_userkey * pKey = import_ssh2(oFile, SSH_KEYTYPE_OPENSSH_NEW, "", NULL);
+	ssh2_userkey* pKey = import_ssh2(oFile, SSH_KEYTYPE_OPENSSH_NEW, "", NULL);
 	sfree(oFile);
 
 	// allocate memory for the public key blob to store in the registry
@@ -808,24 +812,26 @@ LPSTR fido_import_openssh_key()
 
 		// convert to unicode for storing to registry
 		WCHAR szAppIdUnicode[FIDO_MAX_CREDID_LEN] = L"";
-		if (MultiByteToWideChar(CP_UTF8, 0, szAppId, -1, szAppIdUnicode, _countof(szAppIdUnicode)) == 0) return NULL;
-
-		// commit to registry
-		RegSetKeyValueW(HKEY_CURRENT_USER, FIDO_REG_PUBKEYS, szAppIdUnicode, REG_BINARY,
-			pPublicKey, sizeof(BCRYPT_ECCKEY_BLOB) + tPubKeyRaw->len);
-		RegSetKeyValueW(HKEY_CURRENT_USER, FIDO_REG_CREDIDS, szAppIdUnicode, REG_BINARY,
-			tCredId->ptr, tCredId->len);
-		RegSetKeyValueW(HKEY_CURRENT_USER, FIDO_REG_USERVER, szAppIdUnicode, REG_DWORD,
-			&iFlags, sizeof(DWORD));
+		if (MultiByteToWideChar(CP_UTF8, 0, szAppId, -1, szAppIdUnicode, _countof(szAppIdUnicode)) != 0)
+		{
+			// commit to registry
+			RegSetKeyValueW(HKEY_CURRENT_USER, FIDO_REG_PUBKEYS, szAppIdUnicode, REG_BINARY,
+				pPublicKey, sizeof(BCRYPT_ECCKEY_BLOB) + tPubKeyRaw->len);
+			RegSetKeyValueW(HKEY_CURRENT_USER, FIDO_REG_CREDIDS, szAppIdUnicode, REG_BINARY,
+				tCredId->ptr, tCredId->len);
+			RegSetKeyValueW(HKEY_CURRENT_USER, FIDO_REG_USERVER, szAppIdUnicode, REG_DWORD,
+				&iFlags, sizeof(DWORD));
+		}
 	}
 
+	// cleanup public key blob
+	if (pPublicKey != NULL) free(pPublicKey);
+
 	// key cleanup
-	if (pKey != NULL)
+	if (pKey != NULL && pKey->key != NULL)
 	{
-		if (pKey->key)
-			ssh_key_free(pKey->key);
-		if (pKey->comment)
-			sfree(pKey->comment);
+		if (pKey != NULL) ssh_key_free(pKey->key);
+		if (pKey->comment != NULL) sfree(pKey->comment);
 		sfree(pKey);
 	}
 

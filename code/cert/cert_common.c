@@ -27,6 +27,7 @@
 
 VOID cert_reverse_array(LPBYTE pb, DWORD cb)
 {
+	if (cb < 2) return;
 	for (DWORD i = 0, j = cb - 1; i < cb / 2; i++, j--)
 	{
 		BYTE b = pb[i];
@@ -38,7 +39,7 @@ VOID cert_reverse_array(LPBYTE pb, DWORD cb)
 LPSTR cert_get_cert_thumbprint(LPCSTR szIden, PCCERT_CONTEXT pCertContext)
 {
 	// sanity check
-	if (szIden == NULL || pCertContext == NULL) return FALSE;
+	if (szIden == NULL || pCertContext == NULL) return NULL;
 
 	BYTE pbThumbBinary[SHA1_BINARY_SIZE];
 	DWORD cbThumbBinary = SHA1_BINARY_SIZE;
@@ -47,15 +48,15 @@ LPSTR cert_get_cert_thumbprint(LPCSTR szIden, PCCERT_CONTEXT pCertContext)
 		return NULL;
 	}
 
-	LPSTR szThumbHex[SHA1_HEX_SIZE + 1];
+	CHAR szThumbHex[SHA1_HEX_SIZE + 1];
 	DWORD iThumbHexSize = _countof(szThumbHex);
 	CryptBinaryToStringA(pbThumbBinary, cbThumbBinary,
-		CRYPT_STRING_HEXRAW | CRYPT_STRING_NOCRLF, (LPSTR)szThumbHex, &iThumbHexSize);
+		CRYPT_STRING_HEXRAW | CRYPT_STRING_NOCRLF, szThumbHex, &iThumbHexSize);
 
 	LPSTR szThumb = NULL;
 	if (cert_is_capipath(szIden))
 	{
-		szThumb = dupprintf("CAPI:%s", &szThumbHex[0]);
+		szThumb = dupprintf("CAPI:%s", szThumbHex);
 	}
 	else if (cert_is_pkcspath((LPSTR)szIden))
 	{
@@ -64,7 +65,7 @@ LPSTR cert_get_cert_thumbprint(LPCSTR szIden, PCCERT_CONTEXT pCertContext)
 		DWORD cbFileName = sizeof(szFileName);
 		if (CertGetCertificateContextProperty(pCertContext, CERT_PVK_FILE_PROP_ID, szFileName, &cbFileName) == TRUE)
 		{
-			szThumb = dupprintf("PKCS:%s=%S", &szThumbHex[0], szFileName);
+			szThumb = dupprintf("PKCS:%s=%S", szThumbHex, szFileName);
 		}
 	}
 	else if (cert_is_fidopath(szIden))
@@ -122,12 +123,15 @@ LPSTR cert_prompt(LPCSTR szIden, BOOL bAutoSelect, LPCWSTR sCustomPrompt)
 		iCertCount++;
 	}
 
+	// close original store as we no longer need it
+	CertCloseStore(hCertStore, 0);
+
 	// select certificate from store
 	LPSTR szCert = NULL;
 	if (iCertCount == 1 && bAutoSelect)
 	{
 		// auto select if only single certificate specified
-		CertFindCertificateInStore(hMemoryStore, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0, CERT_FIND_ANY, NULL, pCertContext);
+		pCertContext = CertFindCertificateInStore(hMemoryStore, X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, 0, CERT_FIND_ANY, NULL, NULL);
 	}
 	else
 	{
@@ -162,6 +166,14 @@ LPSTR cert_prompt(LPCSTR szIden, BOOL bAutoSelect, LPCWSTR sCustomPrompt)
 
 BOOL cert_load_cert(LPCSTR szCert, PCERT_CONTEXT* ppCertContext, HCERTSTORE* phCertStore)
 {
+	if (szCert == NULL || ppCertContext == NULL || phCertStore == NULL)
+	{
+		return FALSE;
+	}
+
+	*ppCertContext = NULL;
+	*phCertStore = NULL;
+
 	if (cert_is_capipath(szCert))
 	{
 		cert_capi_load_cert(szCert, ppCertContext, phCertStore);
@@ -191,7 +203,7 @@ BOOL cert_test_hash(LPCSTR szCert, DWORD iHashRequest)
 	}
 	else if (cert_is_fidopath(szCert))
 	{
-		return cert_pkcs_test_hash(szCert, iHashRequest);
+		return cert_fido_test_hash(szCert, iHashRequest);
 	}
 
 	return TRUE;
@@ -205,7 +217,7 @@ BOOL cert_confirm_signing(LPCSTR sFingerPrint, LPCSTR sComment)
 	// prompt user
 	BOOL bIsCert = cert_is_certpath(sComment);
 	LPSTR sDescription = bIsCert ? cert_subject_string(sComment) : dupstr(sComment);
-	LPSTR sMessage = dupprintf("%s\r\n\r\n%s: %s\r\n%s: %s\r\n\r\n % s",
+	LPSTR sMessage = dupprintf("%s\r\n\r\n%s: %s\r\n%s: %s\r\n\r\n %s",
 		"应用程序正在尝试使用具有以下详细信息的证书或密钥进行身份验证：",
 		bIsCert ? "使用者" : "注释", sDescription,
 		"指纹", sFingerPrint,
@@ -378,7 +390,7 @@ struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertCont
 	}
 
 	// Handle EDDSA Keys
-	else if (strstr(sAlgoId, szOID_ECC_PUBLIC_KEY) == sAlgoId && strcmp(sSigAlgId, szOID_ED25119) == 0)
+	else if (strstr(sAlgoId, szOID_ECC_PUBLIC_KEY) == sAlgoId && strcmp(sSigAlgId, szOID_ED25519) == 0)
 	{
 		// calculate key bit and byte lengths (ignore leading byte)
 		int iKeyLength = ((pPubKey->cbData - 1) * 8 - pPubKey->cUnusedBits) / 2;
@@ -421,8 +433,9 @@ struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertCont
 		if (CryptImportPublicKeyInfoEx2(X509_ASN_ENCODING, _ADDRESSOF(pCertContext->pCertInfo->SubjectPublicKeyInfo), 0, NULL, &hBCryptKey) == FALSE) return NULL;
 		BCryptGetProperty(hBCryptKey, BCRYPT_KEY_LENGTH, (PUCHAR)&iKeyLength, iKeyLengthSize, &iKeyLengthSize, 0);
 		const int iKeyBytes = (iKeyLength + 7) / 8;
+		BCryptDestroyKey(hBCryptKey);
 
-		// create ecdsa struture to hold our key params
+		// create ecdsa structure to hold our key params
 		struct ecdsa_key* ec = snew(struct ecdsa_key);
 		ZeroMemory(ec, sizeof(struct ecdsa_key));
 		ec_nist_alg_and_curve_by_bits(iKeyLength, &(ec->curve), &(ec->sshk.vt));
@@ -621,14 +634,14 @@ BOOL cert_check_valid(LPCSTR szIden, PCCERT_CONTEXT pCertContext)
 	}
 
 	// verify any excluded certificates are ignored
-	LPCSTR sIgnoredCertName = cert_ignore_cert_name(NULL);
+	LPSTR sIgnoredCertName = cert_ignore_cert_name(NULL);
 	BOOL bIgnoredCertNameMatch = FALSE;
 	if (strlen(sIgnoredCertName) > 0)
 	{
 		DWORD iSize = CertNameToStr(X509_ASN_ENCODING, &pCertContext->pCertInfo->Subject, CERT_X500_NAME_STR, NULL, 0);
 		if (iSize > 0)
 		{
-			LPCSTR sSubjectName = malloc(iSize);
+			LPSTR sSubjectName = malloc(iSize);
 			if (CertNameToStr(X509_ASN_ENCODING, &pCertContext->pCertInfo->Subject, CERT_X500_NAME_STR, sSubjectName, iSize) == iSize)
 			{
 				bIgnoredCertNameMatch = strstr(_strupr(sSubjectName), _strupr(sIgnoredCertName)) != NULL;
@@ -681,8 +694,8 @@ int cert_all_certs(LPSTR** pszCert)
 	LPCSTR sStoreType[2] = { IDEN_CAPI, IDEN_FIDO };
 	HCERTSTORE hCertStore[2] =
 	{
-		cert_capi_get_cert_store(NULL),
-		cert_fido_get_cert_store(NULL)
+		cert_capi_get_cert_store(),
+		cert_fido_get_cert_store()
 	};
 
 	// find certificates matching our criteria
@@ -809,7 +822,7 @@ LPBYTE cert_get_hash(LPCSTR szAlgo, LPCBYTE pDataToHash, DWORD iDataToHashSize, 
 	}
 
 	// prepend the digest if necessary
-	if (bNeedsDigest)
+	if (bNeedsDigest && pHashData != NULL)
 	{
 		*iHashedDataSize += iDigestSize;
 		memcpy(pHashData, pDigest, iDigestSize);
@@ -855,7 +868,7 @@ PVOID cert_pin(LPSTR szCert, BOOL bWide, LPVOID szPin)
 			(1 + ((bWide) ? wcslen(szPin) : strlen(szPin)));
 		const DWORD iCryptLength = CRYPTPROTECTMEMORY_BLOCK_SIZE *
 			((iLength / CRYPTPROTECTMEMORY_BLOCK_SIZE) + 1);
-		VOID* pEncrypted = memcpy(malloc(iCryptLength), szPin, iLength);
+		VOID* pEncrypted = memcpy(calloc(1, iCryptLength), szPin, iLength);
 
 		// encrypt memory
 		CryptProtectMemory(pEncrypted, iCryptLength,

@@ -59,7 +59,6 @@ EXTERN BOOL cert_sign(struct ssh2_userkey * userkey, LPCBYTE pDataToSign, int iD
 EXTERN struct ssh2_userkey * cert_load_key(LPCSTR szCert);
 EXTERN VOID cert_display_cert(LPCSTR szCert, HWND hWnd);
 EXTERN int cert_all_certs(LPSTR ** pszCert);
-EXTERN VOID cert_convert_legacy(LPSTR szCert);
 EXTERN LPBYTE cert_get_hash(LPCSTR szAlgo, LPCBYTE pDataToHash, DWORD iDataToHashSize, DWORD * iHashedDataSize, BOOL bPrependDigest);
 EXTERN PVOID cert_pin(LPSTR szCert, BOOL bWide, LPVOID szPin);
 EXTERN BOOL cert_capi_delete_key(LPCSTR szCert);
@@ -71,8 +70,8 @@ EXTERN VOID fido_clear_keys();
 EXTERN LPSTR cert_capi_create_key(LPCSTR szAlgName, LPCSTR sSubjectName, BOOL bHardware);
 
 // ed25519 oid; no native support in windows
-#ifndef szOID_ED25119
-#define szOID_ED25119 "1.3.6.1.4.1.11591.15.1"
+#ifndef szOID_ED25519
+#define szOID_ED25519 "1.3.6.1.4.1.11591.15.1"
 #endif
 
 #define SHA1_BINARY_SIZE (160 / 8)
