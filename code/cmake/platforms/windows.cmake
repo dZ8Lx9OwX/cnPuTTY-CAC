@@ -53,7 +53,6 @@ define_negation(NO_HTMLHELP HAVE_HTMLHELP_H)
 check_include_files("winsock2.h;afunix.h" HAVE_AFUNIX_H)
 
 check_symbol_exists(strtoumax "inttypes.h" HAVE_STRTOUMAX)
-check_symbol_exists(wmemchr "wchar.h" HAVE_WMEMCHR)
 check_symbol_exists(AddDllDirectory "windows.h" HAVE_ADDDLLDIRECTORY)
 check_symbol_exists(SetDefaultDllDirectories "windows.h"
   HAVE_SETDEFAULTDLLDIRECTORIES)
@@ -174,7 +173,7 @@ endif()
 
 set(platform_libraries
   advapi32.lib comdlg32.lib gdi32.lib imm32.lib
-  ole32.lib shell32.lib user32.lib ws2_32.lib kernel32.lib)
+  ole32.lib shell32.lib shlwapi.lib user32.lib ws2_32.lib kernel32.lib)
 
 # Generate link maps
 if(PUTTY_LINK_MAPS)
@@ -203,19 +202,12 @@ endfunction()
 # Conditionally add PuTTY-CAC compiler customizations
 if(PUTTY_CAC)
   add_compile_definitions(PUTTY_CAC)
-  string(REPLACE "/Ob2" "/Ob1" "CMAKE_C_FLAGS_RELEASE" "${CMAKE_C_FLAGS_RELEASE}")  
-  string(REPLACE "/Ob2" "/Ob1" "CMAKE_CXX_FLAGS_RELEASE" "${CMAKE_CXX_FLAGS_RELEASE}")  
-  string(REPLACE "/MD" "/MT" "CMAKE_C_FLAGS_RELEASE" "${CMAKE_C_FLAGS_RELEASE}")
-  string(REPLACE "/MD" "/MT" "CMAKE_CXX_FLAGS_RELEASE" "${CMAKE_CXX_FLAGS_RELEASE}")
-  string(REPLACE "/MD" "/MT" "CMAKE_STATIC_LINKER_FLAGS_RELEASE" "${CMAKE_STATIC_LINKER_FLAGS_RELEASE}")
-  string(REPLACE "/INCREMENTAL:NO" "" "CMAKE_STATIC_LINKER_FLAGS_RELEASE" "${CMAKE_STATIC_LINKER_FLAGS_RELEASE}")
-  string(REPLACE "/INCREMENTAL:NO" "" "CMAKE_EXE_LINKER_FLAGS_RELEASE" "${CMAKE_EXE_LINKER_FLAGS_RELEASE}")
-  string(REPLACE "/INCREMENTAL:NO" "" "CMAKE_SHARED_LINKER_FLAGS_RELEASE" "${CMAKE_SHARED_LINKER_FLAGS_RELEASE}")
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
   string(REPLACE "/DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
-  string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")  
-  set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /Oi /Gy /GL")
+  string(REPLACE "-DNDEBUG" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+  set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} /Oi /Gy /GL /wd4789")
   set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Oi /Gy /GL")
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4018 /wd4146 /wd4293 /wd4090")  
+  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4244 /wd4267 /wd4018 /wd4146 /wd4293 /wd4090")
   set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /OPT:ICF /OPT:REF /LTCG /DELAYLOAD:webauthn.dll")
-  set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /LTCG")  
+  set(CMAKE_STATIC_LINKER_FLAGS_RELEASE "${CMAKE_STATIC_LINKER_FLAGS_RELEASE} /LTCG")
 endif()

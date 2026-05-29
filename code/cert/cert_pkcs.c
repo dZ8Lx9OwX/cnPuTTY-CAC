@@ -427,9 +427,7 @@ HCERTSTORE cert_pkcs_get_cert_store()
 	}
 
 	char szFile[MAX_PATH + 1] = "\0";
-	OPENFILENAME tFileNameInfo;
-	ZeroMemory(&tFileNameInfo, sizeof(OPENFILENAME));
-	tFileNameInfo.lStructSize = sizeof(OPENFILENAME);
+	OPENFILENAME tFileNameInfo = { .lStructSize = sizeof(tFileNameInfo) };
 	tFileNameInfo.hwndOwner = GetForegroundWindow();
 	tFileNameInfo.lpstrFilter = "PKCS库文件(*pkcs*.dll;*pks*.dll;*p11*.dll;*ykcs*.dll;gclib.dll)\0*pkcs*.dll;*pks*.dll;*p11*.dll;*ykcs*.dll;gclib.dll\0所有文件(*.dll)\0*.dll\0\0";
 	tFileNameInfo.lpstrTitle = "请选择PKCS#11库文件";

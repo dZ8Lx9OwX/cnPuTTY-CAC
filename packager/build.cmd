@@ -3,8 +3,8 @@ TITLE Building PuTTY-CAC
 SETLOCAL ENABLEDELAYEDEXPANSION
  
 :: version information
-SET VER=0.83u2
-SET VERN=0.83.0.2
+SET VER=0.84
+SET VERN=0.84.0.0
 
 :: setup environment variables based on location of this script
 SET INSTDIR=%~dp0
@@ -38,6 +38,22 @@ FOR %%A IN (arm64 x86 x64) DO (
   COPY /Y %BLDDIR%\%%A\Release\*.exe "%BINDIR%\%%A"	
 )
 
+:: verify the binaries do not import the dynamic C/C++ runtime
+WHERE DUMPBIN.EXE >NUL 2>&1
+IF ERRORLEVEL 1 (
+  ECHO ERROR: dumpbin.exe not found; cannot verify static runtime linkage.
+  EXIT /B 1
+)
+FOR /R "%BINDIR%" %%F IN (*.exe) DO (
+  FOR /F "USEBACKQ TOKENS=*" %%D IN (`
+    DUMPBIN.EXE /NOLOGO /DEPENDENTS "%%F" ^| FINDSTR /I /R "vcruntime.*\.dll msvcp.*\.dll msvcr.*\.dll msvcm.*\.dll concrt.*\.dll ucrtbase.*\.dll api-ms-win-crt-.*\.dll"
+  `) DO (
+    ECHO ERROR: %%F imports %%D
+    ECHO ERROR: rebuild with the static runtime before packaging.
+    EXIT /B 1
+  )
+)
+
 :: determine 32-bit program files directory
 IF DEFINED ProgramFiles SET PX86=%ProgramFiles%
 IF DEFINED ProgramFiles(x86) SET PX86=%ProgramFiles(x86)%
@@ -55,7 +71,7 @@ FOR %%X IN (Win32 x64 Debug Release Temp .vs) DO (
 FORFILES /S /P "%BINDIR%" /M "*.*" /C "CMD /C IF /I @ext NEQ """exe""" DEL /Q @file"
 
 :: sign the main executables
-signtool sign /a /as /fd sha256 /tr %TSAURL% /td sha256 /d %LIBNAME% /du %LIBURL% "%BINDIR%\arm64\*.exe" "%BINDIR%\x64\*.exe" "%BINDIR%\x64\*.exe"  
+signtool sign /a /as /fd sha256 /tr %TSAURL% /td sha256 /d %LIBNAME% /du %LIBURL% "%BINDIR%\arm64\*.exe" "%BINDIR%\x86\*.exe" "%BINDIR%\x64\*.exe"  
 signtool sign /a /fd sha256 /tr %TSAURL% /td sha256 /d %LIBNAME% /du %LIBURL% "%BINDIR%\*.msi"
 
 :: copy prereqs from build dir and 'real' installer

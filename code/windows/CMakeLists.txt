@@ -5,6 +5,7 @@ add_sources_from_current_dir(utils
   utils/agent_named_pipe_name.c
   utils/arm_arch_queries.c
   utils/aux_match_opt.c
+  utils/blink_time.c
   utils/centre_window.c
   utils/cmdline_arg.c
   utils/cryptoapi.c
@@ -36,14 +37,12 @@ add_sources_from_current_dir(utils
   utils/shinydialogbox.c
   utils/split_into_argv.c
   utils/split_into_argv_w.c
+  utils/subprocess_waiter.c
   utils/version.c
   utils/win_strerror.c
   unicode.c)
 if(NOT HAVE_STRTOUMAX)
   add_sources_from_current_dir(utils utils/strtoumax.c)
-endif()
-if(NOT HAVE_WMEMCHR)
-  add_sources_from_current_dir(utils utils/wmemchr.c)
 endif()
 add_sources_from_current_dir(eventloop
   cliloop.c handle-wait.c)
@@ -223,6 +222,7 @@ target_include_directories(testcrypt PUBLIC ../cert)
 target_include_directories(puttygen PUBLIC ../cert)
 add_sources_from_current_dir(crypto
 ../import.c
+../cert/cert_portable.c
 ../cert/cert_common.c
 ../cert/cert_capi.c
 ../cert/cert_capi_tools.cc
@@ -230,11 +230,13 @@ add_sources_from_current_dir(crypto
 ../cert/cert_pkcs.c)
 
 add_executable(puttyimp
-  puttyimp.c puttyimp.rc)
+  puttyimp.c ../cert/cert_portable.c puttyimp.rc)
 target_link_directories(puttyimp PUBLIC
   ../contrib/libfido2/lib/${CMAKE_GENERATOR_PLATFORM},
   contrib/libfido2/lib/${CMAKE_GENERATOR_PLATFORM})
 target_include_directories(puttyimp PUBLIC ../contrib/libfido2/include)
+target_include_directories(puttyimp PUBLIC ../cert)
+target_link_libraries(puttyimp shlwapi.lib)
 set_target_properties(puttyimp PROPERTIES
   WIN32_EXECUTABLE OFF
   LINK_FLAGS "/MANIFESTUAC:\"level='requireAdministrator' uiAccess='false'\"")

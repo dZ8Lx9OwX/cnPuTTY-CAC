@@ -3,6 +3,8 @@
 #define UMDF_USING_NTSTATUS
 #include <ntstatus.h>
 
+#include "putty.h"
+
 #include <windows.h>
 #include <wincrypt.h>
 #include <cryptuiapi.h>
@@ -231,7 +233,7 @@ BOOL cert_confirm_signing(LPCSTR sFingerPrint, LPCSTR sComment)
 	return (iResponse == IDYES);
 }
 
-BOOL cert_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDataToSignLen, int iAgentFlags, struct strbuf * pSignature)
+BOOL cert_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDataToSignLen, int iAgentFlags, struct strbuf* pSignature)
 {
 	LPBYTE pRawSig = NULL;
 	DWORD iCounter = 0;
@@ -275,12 +277,12 @@ BOOL cert_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDataToSig
 	{
 		// For ECDSA keys the signature is encoded:
 		// 
-		// 	string     "sk-ecdsa-sha2-nistpXXX@openssh.com"
-		// 	string	   ecdsa_signature (wrapped)
+		//         string     "sk-ecdsa-sha2-nistpXXX@openssh.com"
+		//         string           ecdsa_signature (wrapped)
 		//    mpint    r
 		//    mpint    s
-		// 	byte       flags (sk-only)
-		// 	uint32     counter (sk-only)
+		//         byte       flags (sk-only)
+		//         uint32     counter (sk-only)
 
 		// append algorithm
 		put_stringz(pSignature, userkey->key->vt->ssh_id);
@@ -365,7 +367,7 @@ struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertCont
 		{
 			// create a new putty rsa structure fill out all non-private params
 			struct RSAKey* rsa = snew(struct RSAKey);
-			ZeroMemory(rsa, sizeof(struct RSAKey));
+			*rsa = (struct RSAKey){0};
 			rsa->sshk.vt = find_pubkey_alg("ssh-rsa");
 
 			RSAPUBKEY* pPublicKey = (RSAPUBKEY*)(pbPublicKeyBlob + sizeof(BLOBHEADER));
@@ -399,7 +401,7 @@ struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertCont
 
 		// create eddsa struture to hold our key params
 		struct eddsa_key* ec = snew(struct eddsa_key);
-		ZeroMemory(ec, sizeof(struct eddsa_key));
+		*ec = (struct eddsa_key){0};
 		ec_ed_alg_and_curve_by_bits(iKeyLength, &(ec->curve), &(ec->sshk.vt));
 		ec->privateKey = mp_from_integer(0);
 
@@ -437,7 +439,7 @@ struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertCont
 
 		// create ecdsa structure to hold our key params
 		struct ecdsa_key* ec = snew(struct ecdsa_key);
-		ZeroMemory(ec, sizeof(struct ecdsa_key));
+		*ec = (struct ecdsa_key){0};
 		ec_nist_alg_and_curve_by_bits(iKeyLength, &(ec->curve), &(ec->sshk.vt));
 		ec->privateKey = mp_from_integer(0);
 
@@ -670,17 +672,20 @@ BOOL cert_check_valid(LPCSTR szIden, PCCERT_CONTEXT pCertContext)
 	if (cert_trusted_certs_only(CERT_QUERY))
 	{
 		// attempt to chain the chain
-		CERT_CHAIN_PARA tChainParams;
-		ZeroMemory(&tChainParams, sizeof(tChainParams));
-		tChainParams.cbSize = sizeof(tChainParams);
+		CERT_CHAIN_PARA tChainParams = { .cbSize = sizeof(tChainParams) };
 		PCCERT_CHAIN_CONTEXT pChainContext = NULL;
 		BOOL bChainResult = CertGetCertificateChain(NULL, pCertContext, NULL, NULL, &tChainParams,
 			CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT, NULL, &pChainContext);
 		if (bChainResult == false) return FALSE;
 
-		// concider trusted if the only error was account offline crls
-		BOOL bTrusted = (pChainContext->TrustStatus.dwErrorStatus
-			& ~(CERT_TRUST_IS_OFFLINE_REVOCATION | CERT_TRUST_REVOCATION_STATUS_UNKNOWN)) == 0;
+		// consider trusted if error was account offline crls
+		DWORD dwIgnoredErrors = CERT_TRUST_IS_OFFLINE_REVOCATION | CERT_TRUST_REVOCATION_STATUS_UNKNOWN;
+		if (cert_ignore_expired_certs(CERT_QUERY)) 
+		{
+			// allow accept expired certs if user has that setting enabled
+			dwIgnoredErrors |= CERT_TRUST_IS_NOT_TIME_VALID | CERT_TRUST_IS_NOT_TIME_NESTED;
+		}
+		BOOL bTrusted = (pChainContext->TrustStatus.dwErrorStatus & ~dwIgnoredErrors) == 0;
 		CertFreeCertificateChain(pChainContext);
 		if (!bTrusted) return FALSE;
 	}
@@ -694,8 +699,8 @@ int cert_all_certs(LPSTR** pszCert)
 	LPCSTR sStoreType[2] = { IDEN_CAPI, IDEN_FIDO };
 	HCERTSTORE hCertStore[2] =
 	{
-		cert_capi_get_cert_store(),
-		cert_fido_get_cert_store()
+			cert_capi_get_cert_store(),
+			cert_fido_get_cert_store()
 	};
 
 	// find certificates matching our criteria
@@ -723,36 +728,36 @@ int cert_all_certs(LPSTR** pszCert)
 LPBYTE cert_get_hash(LPCSTR szAlgo, LPCBYTE pDataToHash, DWORD iDataToHashSize, DWORD* iHashedDataSize, BOOL bRequestDigest)
 {
 	const BYTE OID_SHA1[] = {
-		0x30, 0x21, //  type Sequence, length 0x21 (33) 
-		0x30, 0x09, //  type Sequence, length 0x09 (9) 
-		0x06, 0x05, //  type OID, length 0x05 (5) 
-		0x2b, 0x0e, 0x03, 0x02, 0x1a, //  id-sha1 OID 
-		0x05, 0x00, //  type NULL, length 0x0 (0) 
-		0x04, 0x14  //  type Octet string, length 0x14 (20), followed by sha1 hash 
+			0x30, 0x21, //  type Sequence, length 0x21 (33) 
+			0x30, 0x09, //  type Sequence, length 0x09 (9) 
+			0x06, 0x05, //  type OID, length 0x05 (5) 
+			0x2b, 0x0e, 0x03, 0x02, 0x1a, //  id-sha1 OID 
+			0x05, 0x00, //  type NULL, length 0x0 (0) 
+			0x04, 0x14  //  type Octet string, length 0x14 (20), followed by sha1 hash 
 	};
 	const BYTE OID_SHA256[] = {
-		0x30, 0x31, //  type Sequence, length 0x31 (49) 
-		0x30, 0x0d, //  type Sequence, length 0x0d (13) 
-		0x06, 0x09, //  type OID, length 0x09 (9) 
-		0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, //  id-sha256 OID 
-		0x05, 0x00, //  type NULL, length 0x0 (0) 
-		0x04, 0x20  //  type Octet string, length 0x20 (32), followed by sha256 hash 
+			0x30, 0x31, //  type Sequence, length 0x31 (49) 
+			0x30, 0x0d, //  type Sequence, length 0x0d (13) 
+			0x06, 0x09, //  type OID, length 0x09 (9) 
+			0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, //  id-sha256 OID 
+			0x05, 0x00, //  type NULL, length 0x0 (0) 
+			0x04, 0x20  //  type Octet string, length 0x20 (32), followed by sha256 hash 
 	};
 	const BYTE OID_SHA384[] = {
-		0x30, 0x41, //  type Sequence, length 0x41 (65) 
-		0x30, 0x0d, //  type Sequence, length 0x0d (13) 
-		0x06, 0x09, //  type OID, length 0x09 (9) 
-		0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, //  id-sha384 OID 
-		0x05, 0x00, //  type NULL, length 0x0 (0) 
-		0x04, 0x30  //  type Octet string, length 0x30 (48), followed by sha384 hash 
+			0x30, 0x41, //  type Sequence, length 0x41 (65) 
+			0x30, 0x0d, //  type Sequence, length 0x0d (13) 
+			0x06, 0x09, //  type OID, length 0x09 (9) 
+			0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, //  id-sha384 OID 
+			0x05, 0x00, //  type NULL, length 0x0 (0) 
+			0x04, 0x30  //  type Octet string, length 0x30 (48), followed by sha384 hash 
 	};
 	const BYTE OID_SHA512[] = {
-		0x30, 0x51, //  type Sequence, length 0x51 (81) 
-		0x30, 0x0d, //  type Sequence, length 0x0d (13) 
-		0x06, 0x09, //  type OID, length 0x09 (9) 
-		0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, //  id-sha512 OID 
-		0x05, 0x00, //  type NULL, length 0x0 (0) 
-		0x04, 0x40  //  type Octet string, length 0x40 (64), followed by sha512 hash 
+			0x30, 0x51, //  type Sequence, length 0x51 (81) 
+			0x30, 0x0d, //  type Sequence, length 0x0d (13) 
+			0x06, 0x09, //  type OID, length 0x09 (9) 
+			0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, //  id-sha512 OID 
+			0x05, 0x00, //  type NULL, length 0x0 (0) 
+			0x04, 0x40  //  type Octet string, length 0x40 (64), followed by sha512 hash 
 	};
 
 	// for rsa, prepend the hash digest if requested
@@ -886,9 +891,7 @@ PVOID cert_pin(LPSTR szCert, BOOL bWide, LPVOID szPin)
 	}
 
 	// prompt the user to enter the pin
-	CREDUI_INFOW tCredInfo;
-	ZeroMemory(&tCredInfo, sizeof(CREDUI_INFOW));
-	tCredInfo.cbSize = sizeof(tCredInfo);
+	CREDUI_INFOW tCredInfo = { .cbSize = sizeof(tCredInfo) };
 	tCredInfo.pszCaptionText = L"PuTTY身份验证";
 	tCredInfo.pszMessageText = L"请输入智能卡凭证";
 	tCredInfo.hwndParent = GetDesktopWindow();
@@ -955,7 +958,7 @@ LPCSTR cert_registry_setting_load_str(LPCSTR sSetting, LPCSTR sDefault)
 	LPCSTR sReturn = NULL;
 	DWORD iReturnSize = 0;
 	if (RegGetValue(HKEY_CURRENT_USER, PUTTY_REG_POS, sSetting,
-			RRF_RT_REG_SZ, NULL, NULL, &iReturnSize) == ERROR_SUCCESS &&
+		RRF_RT_REG_SZ, NULL, NULL, &iReturnSize) == ERROR_SUCCESS &&
 		RegGetValue(HKEY_CURRENT_USER, PUTTY_REG_POS, sSetting,
 			RRF_RT_REG_SZ, NULL, (sReturn = malloc(iReturnSize)), &iReturnSize) == ERROR_SUCCESS)
 	{
@@ -967,59 +970,58 @@ LPCSTR cert_registry_setting_load_str(LPCSTR sSetting, LPCSTR sDefault)
 BOOL cert_trusted_certs_only(CERT_SETCMD iCommand)
 {
 	const LPSTR sSetting = "TrustedCertsOnly";
-	if (iCommand & CERT_SET) cert_registry_setting_set(sSetting, iCommand);
+	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
 	return cert_registry_setting_load(sSetting, FALSE, iCommand);
 }
 
 BOOL cert_save_cert_list_enabled(CERT_SETCMD iCommand)
 {
 	const LPSTR sSetting = "SaveCertListEnabled";
-	if (iCommand & CERT_SET) cert_registry_setting_set(sSetting, iCommand);
+	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
 	return cert_registry_setting_load(sSetting, FALSE, iCommand);
 }
 
 BOOL cert_cache_enabled(CERT_SETCMD iCommand)
 {
 	const LPSTR sSetting = "ForcePinCaching";
-	if (iCommand & CERT_SET) cert_registry_setting_set(sSetting, iCommand);
+	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
 	return cert_registry_setting_load(sSetting, FALSE, iCommand);
 }
 
 BOOL cert_auth_prompting(CERT_SETCMD iCommand)
 {
 	const LPSTR sSetting = "CertAuthPrompting";
-	if (iCommand & CERT_SET) cert_registry_setting_set(sSetting, iCommand);
+	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
 	return cert_registry_setting_load(sSetting, FALSE, iCommand);
 }
 
 BOOL cert_smartcard_certs_only(CERT_SETCMD iCommand)
 {
 	const LPSTR sSetting = "SmartCardLogonCertsOnly";
-	if (iCommand & CERT_SET) cert_registry_setting_set(sSetting, iCommand);
+	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
 	return cert_registry_setting_load(sSetting, FALSE, iCommand);
 }
 
 BOOL cert_ignore_expired_certs(CERT_SETCMD iCommand)
 {
 	const LPSTR sSetting = "IgnoreExpiredCerts";
-	if (iCommand & CERT_SET) cert_registry_setting_set(sSetting, iCommand);
+	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
 	return cert_registry_setting_load(sSetting, FALSE, iCommand);
 }
 
 BOOL cert_allow_any_cert(CERT_SETCMD iCommand)
 {
 	const LPSTR sSetting = "AllowAnyCert";
-	if (iCommand & CERT_SET) cert_registry_setting_set(sSetting, iCommand);
+	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
 	return cert_registry_setting_load(sSetting, FALSE, iCommand);
 }
 
 BOOL cert_auto_load_certs(CERT_SETCMD iCommand)
 {
 	const LPSTR sSetting = "AutoloadCerts";
-	if (iCommand & CERT_SET) cert_registry_setting_set(sSetting, iCommand);
+	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
 	return cert_registry_setting_load(sSetting, FALSE, iCommand);
 }
-
 DWORD cert_menu_flags(BOOL(*func)(CERT_SETCMD iCommand))
 {
 	DWORD flags = func(CERT_QUERY) ? MF_CHECKED : MF_UNCHECKED;

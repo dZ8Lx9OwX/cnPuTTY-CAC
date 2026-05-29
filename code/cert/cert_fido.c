@@ -133,6 +133,7 @@ DWORD WINAPI WebAuthNAuthenticatorGetAssertionThread(LPVOID lpParam)
 		pParams->pWebAuthNClientData, pParams->pWebAuthNGetAssertionOptions, &pParams->ppWebAuthNAssertion);
 	if (hMakeResult != S_OK)
 	{
+		if (pParams->hWnd != NULL) PostMessage(pParams->hWnd, WM_USER, 0, 0);
 		ExitThread(1);
 		return FALSE;
 	}
@@ -251,7 +252,6 @@ BYTE* cert_fido_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDat
 	{
 		// eddsa
 		Signature = malloc(pParams.ppWebAuthNAssertion->cbSignature);
-		if (Signature == NULL) return NULL;
 		memcpy(Signature, pParams.ppWebAuthNAssertion->pbSignature, pParams.ppWebAuthNAssertion->cbSignature);
 		*iSigLen = pParams.ppWebAuthNAssertion->cbSignature;
 	}
@@ -261,9 +261,12 @@ BYTE* cert_fido_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDat
 		const int iSigInitialOffset = 3;
 		int iSigPartOffsetR = iSigInitialOffset + 1 + (pParams.ppWebAuthNAssertion->pbSignature[iSigInitialOffset] - iSigPartSize);
 		int iSigPartOffsetS = iSigPartOffsetR + 1 + pParams.ppWebAuthNAssertion->pbSignature[iSigPartOffsetR + iSigPartSize + 1] + 1;
-		if (iSigPartOffsetR < 0 || iSigPartOffsetS < 0) return NULL;
+		if (iSigPartOffsetR < 0 || iSigPartOffsetS < 0)
+		{
+			WebAuthNFreeAssertion(pParams.ppWebAuthNAssertion);
+			return NULL;
+		}
 		Signature = malloc((*iSigLen = iSigPartSize * 2));
-		if (Signature == NULL) return NULL;
 		memcpy(&Signature[0], &pParams.ppWebAuthNAssertion->pbSignature[iSigPartOffsetR], iSigPartSize);
 		memcpy(&Signature[iSigPartSize], &pParams.ppWebAuthNAssertion->pbSignature[iSigPartOffsetS], iSigPartSize);
 	}
@@ -399,13 +402,14 @@ HCERTSTORE cert_fido_get_cert_store()
 
 	// enum over cached keys in registry
 	BYTE sPublicKeyBuffer[FIDO_MAX_PUBKEY_LEN];
-	DWORD iPublicKeyBufferSize = sizeof(sPublicKeyBuffer);
 	WCHAR sApplicationId[FIDO_MAX_APPID_LEN];
-	DWORD iApplicationIdSize = _countof(sApplicationId);
-	for (int iIndex = 0; RegEnumValueW(hEnumKey, iIndex, sApplicationId, &iApplicationIdSize,
-		NULL, NULL, sPublicKeyBuffer, &iPublicKeyBufferSize) != ERROR_NO_MORE_ITEMS;
-		iIndex++, iPublicKeyBufferSize = sizeof(sPublicKeyBuffer), iApplicationIdSize = _countof(sApplicationId))
+	for (int iIndex = 0; ; iIndex++)
 	{
+		DWORD iPublicKeyBufferSize = sizeof(sPublicKeyBuffer);
+		DWORD iApplicationIdSize = _countof(sApplicationId);
+		if (RegEnumValueW(hEnumKey, iIndex, sApplicationId, &iApplicationIdSize,
+			NULL, NULL, sPublicKeyBuffer, &iPublicKeyBufferSize) != ERROR_SUCCESS) break;
+
 		PCCERT_CONTEXT pCertContext = NULL;
 		if (cert_fido_get_cert((PBCRYPT_ECCKEY_BLOB)sPublicKeyBuffer, iPublicKeyBufferSize, sApplicationId, &pCertContext) == TRUE)
 		{
@@ -438,6 +442,7 @@ DWORD WINAPI WebAuthNAuthenticatorMakeCredentialThread(LPVOID lpParam)
 		pParams->pWebAuthNMakeCredentialOptions, &pParams->ppWebAuthNCredentialAttestation);
 	if (hMakeResult != S_OK)
 	{
+		if (pParams->hWnd != NULL) PostMessage(pParams->hWnd, WM_USER, 0, 0);
 		ExitThread(1);
 		return FALSE;
 	}
@@ -520,9 +525,9 @@ BOOL fido_create_key(LPCSTR szAlgName, LPCSTR szDisplayName, LPCSTR szApplicatio
 	WebAuthNClientData.pwszHashAlgId = sWebAuthHashAlg;
 
 	//  setup general creation options 
-	WEBAUTHN_AUTHENTICATOR_MAKE_CREDENTIAL_OPTIONS tCredentialOptions;
-	ZeroMemory(&tCredentialOptions, sizeof(tCredentialOptions));
-	tCredentialOptions.dwVersion = WEBAUTHN_AUTHENTICATOR_MAKE_CREDENTIAL_OPTIONS_CURRENT_VERSION;
+	WEBAUTHN_AUTHENTICATOR_MAKE_CREDENTIAL_OPTIONS tCredentialOptions = {
+		.dwVersion = WEBAUTHN_AUTHENTICATOR_MAKE_CREDENTIAL_OPTIONS_CURRENT_VERSION
+	};
 	tCredentialOptions.bRequireResidentKey = bResidentKey;
 	tCredentialOptions.dwUserVerificationRequirement = bUserVerification ? WEBAUTHN_USER_VERIFICATION_REQUIREMENT_REQUIRED : WEBAUTHN_USER_VERIFICATION_REQUIREMENT_DISCOURAGED;
 
@@ -742,9 +747,7 @@ LPSTR fido_import_openssh_key()
 
 	// get the file from the user
 	char szFile[MAX_PATH + 1] = "\0";
-	OPENFILENAME tFileNameInfo;
-	ZeroMemory(&tFileNameInfo, sizeof(OPENFILENAME));
-	tFileNameInfo.lStructSize = sizeof(OPENFILENAME);
+	OPENFILENAME tFileNameInfo = { .lStructSize = sizeof(tFileNameInfo) };
 	tFileNameInfo.hwndOwner = GetForegroundWindow();
 	tFileNameInfo.lpstrFilter = "SSH密钥文件(id_*_sk)\0id_*_sk\0所有文件(*)\0*\0\0";
 	tFileNameInfo.lpstrTitle = "请选择要导入的SSH安全密钥文件";

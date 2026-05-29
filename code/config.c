@@ -12,6 +12,7 @@
 #include "tree234.h"
 #ifdef PUTTY_CAC
 #include "cert_common.h"
+#include "cert_portable.h"
 #endif // PUTTY_CAC
 
 #define PRINTER_DISABLED_STRING "无输出(禁止打印)"
@@ -943,10 +944,10 @@ void fido_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
 		// display name
 		char* szDisplayName = dlg_editbox_get(fidod->fido_display_text, dlg);
 		if (szDisplayName == NULL || strlen(szDisplayName) == 0) {
-			MessageBoxW(NULL, L"The value provided for display name is not valid. " \
-				L"This value cannot be blank. " \
-				L"Please check this value and try again.",
-				L"FIDO Key Creation Parameters Invalid", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
+			MessageBoxW(NULL, L"提供的显示名称值无效。" \
+				L"此值不能为空。" \
+				L"请检查此值并重试。",
+				L"FIDO 密钥创建参数无效", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
 			return;
 		}
 
@@ -1164,6 +1165,88 @@ void capi_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
 	if (ctrl == capid->capi_provider_radio && event == EVENT_REFRESH)
 	{
 		dlg_radiobutton_set(ctrl, dlg, 0);
+	}
+}
+
+struct portable_data {
+	dlgcontrol* portable_export_button;
+	dlgcontrol* portable_import_button;
+	dlgcontrol* portable_path_text;
+};
+
+void portable_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
+{
+	struct portable_data* portd = (struct portable_data*)ctrl->context.p;
+	(void)data;
+
+	if (ctrl == portd->portable_export_button && event == EVENT_REFRESH)
+	{
+		WCHAR sPathW[MAX_PATH];
+		char sPathA[MAX_PATH];
+		if (cert_portable_get_settings_path(sPathW))
+			WideCharToMultiByte(CP_ACP, 0, sPathW, -1, sPathA, sizeof(sPathA), NULL, NULL);
+		else
+			strcpy(sPathA, "<path unavailable>");
+		dlg_text_set(portd->portable_path_text, dlg, sPathA);
+	}
+
+	if (ctrl == portd->portable_export_button && event == EVENT_ACTION)
+	{
+		if (cert_portable_enabled())
+		{
+			MessageBoxW(NULL,
+				L"无法导出设置，因为 putty.dat 已经存在。\n\n"
+				L"请先关闭所有 PuTTY-CAC 程序\n然后在导出注册表设置之前删除或重命名 putty.dat。",
+				L"PuTTY-CAC 便携提示", MB_OK | MB_ICONINFORMATION);
+			return;
+		}
+
+		if (cert_portable_export())
+		{
+			if (MessageBoxW(NULL,
+					L"设置已成功导出到 putty.dat。\n\n"
+					L"重启 PuTTY 以便开始使用可移植设置文件？",
+					L"PuTTY-CAC 便携提示", MB_YESNO | MB_ICONQUESTION) == IDYES)
+			{
+				WCHAR sExe[MAX_PATH];
+				STARTUPINFOW si = { .cb = sizeof(si) };
+				PROCESS_INFORMATION pi = {0};
+				if (GetModuleFileNameW(NULL, sExe, MAX_PATH) > 0)
+					CreateProcessW(sExe, NULL, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+				ExitProcess(0);
+			}
+		}
+		else
+			MessageBoxW(NULL, L"导出设置到 putty.dat 失败。",
+				L"PuTTY-CAC 便携提示", MB_OK | MB_ICONERROR);
+	}
+
+	if (ctrl == portd->portable_import_button && event == EVENT_ACTION)
+	{
+		if (!cert_portable_settings_exists())
+		{
+			MessageBoxW(NULL,
+				L"无法导入设置，因为 putty.dat 不存在。",
+				L"PuTTY-CAC 便携提示", MB_OK | MB_ICONINFORMATION);
+			return;
+		}
+
+		if (MessageBoxW(NULL,
+				L"从 putty.dat 将设置导入到 Windows 注册表？\n\n"
+				L"HKCU\\Software\\SimonTatham 下的现有设置将被更新。\n\n"
+				L"警告：PuTTY-CAC 将在 putty.dat 存在时继续使用它！！\n"
+				L"关闭所有 PuTTY 程序，然后删除或重命名 putty.dat\n"
+				L"以便使导入注册表的设置生效。",
+				L"PuTTY-CAC 便携提示", MB_YESNO | MB_ICONQUESTION) == IDYES)
+		{
+			if (cert_portable_import())
+				MessageBoxW(NULL, L"已成功从 putty.dat 导入设置。",
+					L"PuTTY-CAC 便携提示", MB_OK | MB_ICONINFORMATION);
+			else
+				MessageBoxW(NULL,
+					L"导入设置失败！请确保 putty.dat 存在且有效。",
+					L"PuTTY-CAC 便携提示", MB_OK | MB_ICONERROR);
+		}
 	}
 }
 #endif // PUTTY_CAC
@@ -2130,12 +2213,12 @@ void proxy_type_handler(dlgcontrol *ctrl, dlgparam *dlg,
         ADD(PROXY_SOCKS4, "SOCKS 4");
         ADD(PROXY_HTTP, "HTTP连接");
         if (ssh_proxy_supported) {
-            ADD(PROXY_SSH_TCPIP, "SSH代理 + 端口转发");
-            ADD(PROXY_SSH_EXEC, "SSH代理 + 执行命令");
-            ADD(PROXY_SSH_SUBSYSTEM, "SSH代理 + 调用子系统");
+            ADD(PROXY_SSH_TCPIP, "SSH连接到代理并使用端口转发");
+            ADD(PROXY_SSH_EXEC, "SSH连接到代理并执行命令");
+            ADD(PROXY_SSH_SUBSYSTEM, "SSH连接到代理并调用子系统");
         }
         if (ctrl->context.i & PROXY_UI_FLAG_LOCAL) {
-            ADD(PROXY_CMD, "本地 (运行子程序进行连接)");
+            ADD(PROXY_CMD, "本地 (运行子命令进行连接)");
         }
         ADD(PROXY_TELNET, "Telnet (临时发送命令)");
 
@@ -2893,6 +2976,12 @@ void setup_config_box(struct controlbox *b, bool midsession,
                              HELPCTX(connection_loghost),
                              conf_editbox_handler, I(CONF_loghost), ED_STR);
             }
+
+            s = ctrl_getset(b, "连接", "hooks",
+                            "发生连接事件时运行的命令：");
+            ctrl_editbox(s, "预连接命令(连接前运行的命令)", 'b', 100,
+                         HELPCTX(connection_pre_hook),
+                         conf_editbox_handler, I(CONF_pre_connect_command), ED_STR);
         }
 
         /*
@@ -3437,6 +3526,41 @@ void setup_config_box(struct controlbox *b, bool midsession,
 			capid->capi_delete_key_button = ctrl_pushbutton(s, "删除密钥...",
 				NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
 			capid->capi_delete_key_button->column = 2;
+
+			/*
+			 * The Portable panel (root level).
+			 */
+			ctrl_settitle(b, "便携式",
+				"便携式设置选项");
+			struct portable_data* portd =
+				(struct portable_data*)ctrl_alloc(b, sizeof(struct portable_data));
+
+			s = ctrl_getset(b, "便携式", "info", "便携设置文件：");
+			ctrl_text(s,
+				"当PuTTY可执行文件目录中存在putty.dat时\n"
+				"PuTTY会使用它而不是注册表",
+				HELPCTX(no_help));
+			portd->portable_path_text = ctrl_text(s, "", HELPCTX(no_help));
+
+			s = ctrl_getset(b, "便携式", "export", "导出：");
+			ctrl_text(s,
+				"当putty.dat不存在时,在PuTTY可执行文件目录\n"
+				"创建putty.dat并保存当前注册表设置",
+				HELPCTX(no_help));
+			ctrl_columns(s, 3, 45, 10, 45);
+			portd->portable_export_button = ctrl_pushbutton(s, "导出 putty.dat",
+				NO_SHORTCUT, HELPCTX(no_help), portable_event_handler, P(portd));
+			portd->portable_export_button->column = 0;
+
+			s = ctrl_getset(b, "便携式", "import", "导入：");
+			ctrl_text(s,
+				"将putty.dat中的设置导入到注册表中\n"
+				"注册表中现有的设置将被覆盖",
+				HELPCTX(no_help));
+			ctrl_columns(s, 3, 45, 10, 45);
+			portd->portable_import_button = ctrl_pushbutton(s, "导入 putty.dat",
+				NO_SHORTCUT, HELPCTX(no_help), portable_event_handler, P(portd));
+			portd->portable_import_button->column = 0;
 #endif // PUTTY_CAC
             /*
              * The Connection/SSH/Auth panel.
