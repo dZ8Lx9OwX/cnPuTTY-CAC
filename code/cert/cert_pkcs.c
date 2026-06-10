@@ -67,7 +67,7 @@ BYTE * cert_pkcs_sign(struct ssh2_userkey * userkey, LPCBYTE pDataToSign, int iD
 	CK_ATTRIBUTE_TYPE oAttribute = 0;
 
 	// ecdsa
-	if (strstr(userkey->key->vt->ssh_id, "ecdsa-") == userkey->key->vt->ssh_id)
+	if (strstr(userkey->key->vt->ssh_id, "ecdsa-") != NULL)
 	{
 		oType = CKK_EC;
 		oAttribute = CKA_EC_POINT;

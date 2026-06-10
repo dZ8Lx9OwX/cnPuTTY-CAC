@@ -93,18 +93,9 @@ void cert_capi_load_cert(LPCSTR szCert, PCCERT_CONTEXT* ppCertCtx, HCERTSTORE* p
 BOOL cert_capi_test_hash(LPCSTR szCert, DWORD iHashRequest)
 {
 	// use flags to determine requested signature hash algorithm
-	ALG_ID iHashAlg = CALG_SHA1;
-	LPCWSTR sHashAlgBCrypt = BCRYPT_SHA1_ALGORITHM;
-	if (iHashRequest == SSH_AGENT_RSA_SHA2_256)
-	{
-		iHashAlg = CALG_SHA_256;
-		sHashAlgBCrypt = BCRYPT_SHA256_ALGORITHM;
-	}
-	if (iHashRequest == SSH_AGENT_RSA_SHA2_512)
-	{
-		iHashAlg = CALG_SHA_512;
-		sHashAlgBCrypt = BCRYPT_SHA512_ALGORITHM;
-	}
+	DWORD iHashAlg;
+	LPCWSTR sHashAlgId;
+	(void)cert_resolve_hash_alg(NULL, 0, NULL, iHashRequest, NULL, &iHashAlg, &sHashAlgId);
 
 	// get a handle to the certificate
 	HCERTSTORE hCertStore = NULL;
@@ -135,7 +126,7 @@ BOOL cert_capi_test_hash(LPCSTR szCert, DWORD iHashRequest)
 		{
 			// key is serviced through cng; report whether cng supports the hash
 			BCRYPT_ALG_HANDLE hAlg = NULL;
-			bHashSuccess = BCryptOpenAlgorithmProvider(&hAlg, sHashAlgBCrypt, NULL, 0) == 0;
+			bHashSuccess = BCryptOpenAlgorithmProvider(&hAlg, sHashAlgId, NULL, 0) == 0;
 			if (hAlg != NULL) BCryptCloseAlgorithmProvider(hAlg, 0);
 		}
 		else if (CryptAcquireContextW(&hCryptProv, pProviderInfo->pwszContainerName,
@@ -144,7 +135,7 @@ BOOL cert_capi_test_hash(LPCSTR szCert, DWORD iHashRequest)
 		{
 			// check if legacy csp can create a hash of this type
 			HCRYPTHASH hHash = (ULONG_PTR)NULL;
-			bHashSuccess = CryptCreateHash((HCRYPTPROV)hCryptProv, iHashAlg, 0, 0, &hHash) != FALSE;
+			bHashSuccess = CryptCreateHash((HCRYPTPROV)hCryptProv, (ALG_ID)iHashAlg, 0, 0, &hHash) != FALSE;
 			if (hHash != (ULONG_PTR)NULL) { CryptDestroyHash(hHash); }
 		}
 
@@ -164,18 +155,9 @@ BOOL cert_capi_test_hash(LPCSTR szCert, DWORD iHashRequest)
 BYTE* cert_capi_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDataToSignLen, int* iSigLen, LPCSTR sHashAlgName)
 {
 	// use flags to determine requested signature hash algorithm
-	ALG_ID iHashAlg = CALG_SHA1;
-	LPCWSTR iHashAlgNCrypt = NCRYPT_SHA1_ALGORITHM;
-	if (strcmp(sHashAlgName, "rsa-sha2-256") == 0)
-	{
-		iHashAlg = CALG_SHA_256;
-		iHashAlgNCrypt = NCRYPT_SHA256_ALGORITHM;
-	}
-	if (strcmp(sHashAlgName, "rsa-sha2-512") == 0)
-	{
-		iHashAlg = CALG_SHA_512;
-		iHashAlgNCrypt = NCRYPT_SHA512_ALGORITHM;
-	}
+	DWORD iHashAlg;
+	LPCWSTR sHashAlgId;
+	(void)cert_resolve_hash_alg(NULL, 0, sHashAlgName, 0, NULL, &iHashAlg, &sHashAlgId);
 
 	// get a handle to the certificate
 	HCERTSTORE hCertStore = NULL;
@@ -218,9 +200,11 @@ BYTE* cert_capi_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDat
 			DWORD iPadFlag = 0;
 			BCRYPT_PKCS1_PADDING_INFO tInfo = { 0 };
 			PVOID pPadInfo = NULL;
-			if (strcmp(userkey->key->vt->ssh_id, "ssh-rsa") == 0)
+			if (strcmp(userkey->key->vt->ssh_id, "ssh-rsa") == 0 ||
+				strcmp(userkey->key->vt->ssh_id, "x509v3-ssh-rsa") == 0 ||
+				strcmp(userkey->key->vt->ssh_id, "x509v3-rsa2048-sha256") == 0)
 			{
-				tInfo.pszAlgId = iHashAlgNCrypt;
+				tInfo.pszAlgId = sHashAlgId;
 				iPadFlag = BCRYPT_PAD_PKCS1;
 				pPadInfo = &tInfo;
 			}
@@ -262,7 +246,7 @@ BYTE* cert_capi_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDat
 
 			// CSP implementation
 			HCRYPTHASH hHash = (ULONG_PTR)NULL;
-			if (CryptCreateHash((HCRYPTPROV)hCryptProv, iHashAlg, 0, 0, &hHash) != FALSE &&
+			if (CryptCreateHash((HCRYPTPROV)hCryptProv, (ALG_ID)iHashAlg, 0, 0, &hHash) != FALSE &&
 				CryptHashData(hHash, (LPBYTE)pDataToSign, iDataToSignLen, 0) != FALSE &&
 				CryptSignHash(hHash, pProviderInfo->dwKeySpec, NULL, 0, NULL, &iSig) != FALSE &&
 				CryptSignHash(hHash, pProviderInfo->dwKeySpec, NULL, 0, pSig = snewn(iSig, BYTE), &iSig) != FALSE)

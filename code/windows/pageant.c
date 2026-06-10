@@ -87,6 +87,7 @@ static int initial_menuitems_count;
 #define IDM_AUTOCERT 0x0130
 #define IDM_SAVELIST 0x0140
 #define IDM_PINCACHE 0x0150
+#define IDM_X509AUTH 0x0160
 #define IDM_CERTAUTH 0x0170
 #define IDM_SCONLY   0x0180
 #define IDM_NOEXPR   0x0190
@@ -1568,6 +1569,14 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT message,
 		  cert_cache_enabled(ForcePinCaching ? CERT_SET : CERT_UNSET);
 		  RegSetKeyValue(HKEY_CURRENT_USER, PUTTY_REG_POS, "ForcePinCaching", REG_DWORD, &ForcePinCaching, sizeof(DWORD));
 	  } break;
+	  case IDM_X509AUTH: {
+		  DWORD iItem = CheckMenuItem(systray_menu, IDM_X509AUTH, MF_CHECKED);
+		  DWORD iNewState = (iItem == MF_CHECKED) ? MF_UNCHECKED : MF_CHECKED;
+		  CheckMenuItem(systray_menu, IDM_X509AUTH, iNewState);
+		  BOOL bEnabled = (iNewState == MF_CHECKED);
+		  // cert_auth_x509_enabled persists the global setting in the registry
+		  cert_auth_x509_enabled(bEnabled ? CERT_SET : CERT_UNSET);
+	  } break;
 	  case IDM_CERTAUTH: {
 		  DWORD iItem = CheckMenuItem(systray_menu, IDM_CERTAUTH, MF_CHECKED);
 		  DWORD iNewState = (iItem == MF_CHECKED) ? MF_UNCHECKED : MF_CHECKED;
@@ -2196,6 +2205,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	AppendMenu(systray_menu, cert_menu_flags(cert_save_cert_list_enabled), IDM_SAVELIST, "Remember Certs && Keys");
 	AppendMenu(systray_menu, cert_menu_flags(cert_cache_enabled), IDM_PINCACHE, "Force PIN Caching");
 	AppendMenu(systray_menu, cert_menu_flags(cert_auth_prompting), IDM_CERTAUTH, "Cert && Key Auth Prompting");
+	AppendMenu(systray_menu, cert_menu_flags(cert_auth_x509_enabled), IDM_X509AUTH, "Attempt X.509v3 Cert Auth");
 	AppendMenu(systray_menu, MF_SEPARATOR, 0, NULL);
 	AppendMenu(systray_menu, cert_menu_flags(cert_smartcard_certs_only), IDM_SCONLY, "Filter: Smart Card Logon Certs");
     AppendMenu(systray_menu, cert_menu_flags(cert_trusted_certs_only), IDM_TRUSTED, "Filter: Trusted Certs");

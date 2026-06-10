@@ -1178,6 +1178,15 @@ void capi_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
 	}
 }
 
+void cert_x509_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
+{
+	// Global setting shared by PuTTY and Pageant, not per-session
+	if (event == EVENT_REFRESH)
+		dlg_checkbox_set(ctrl, dlg, cert_auth_x509_enabled(CERT_QUERY));
+	if (event == EVENT_VALCHANGE)
+		cert_auth_x509_enabled(dlg_checkbox_get(ctrl, dlg) ? CERT_SET : CERT_UNSET);
+}
+
 struct portable_data {
 	dlgcontrol* portable_export_button;
 	dlgcontrol* portable_import_button;
@@ -3497,34 +3506,6 @@ void setup_config_box(struct controlbox *b, bool midsession,
 				NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
 			capid->capi_create_key_button->column = 2;
 
-			// selection for capi filter
-			s = ctrl_getset(b, "Connection/SSH/Certificate/CAPI Tools", "filter_params", "Certificate selection filters");
-			ctrl_columns(s, 3, 45, 10, 45);
-
-			ctrl_text(s, "Use these options to filter the certificates shown in " \
-				"PuTTY and Pageant certificate selection dialog boxes.", HELPCTX(no_help));
-
-            if (!cert_trusted_certs_only(CERT_ENFORCED))
-            {
-                capid->capi_trusted_certs_checkbox = ctrl_checkbox(s, "Only Trusted",
-                    NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
-                capid->capi_trusted_certs_checkbox->column = 0;
-            }
-
-            if (!cert_smartcard_certs_only(CERT_ENFORCED))
-            {
-                capid->capi_smartcard_only_checkbox = ctrl_checkbox(s, "Only Smart Card",
-                    NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
-                capid->capi_smartcard_only_checkbox->column = 0;
-            }
-
-            if (!cert_ignore_expired_certs(CERT_ENFORCED))
-            {
-                capid->capi_no_expired_checkbox = ctrl_checkbox(s, "Not Expired",
-                    NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
-                capid->capi_no_expired_checkbox->column = 2;
-            }
-
 			// selection for other options filter
 			s = ctrl_getset(b, "Connection/SSH/Certificate/CAPI Tools", "other_params", "Other options");
 			ctrl_columns(s, 3, 45, 10, 45);
@@ -3536,6 +3517,46 @@ void setup_config_box(struct controlbox *b, bool midsession,
 			capid->capi_delete_key_button = ctrl_pushbutton(s, "Delete Key...",
 				NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
 			capid->capi_delete_key_button->column = 2;
+
+			// The Connection/SSH/Certificate/Miscellaneous panel.
+			ctrl_settitle(b, "Connection/SSH/Certificate/Miscellaneous",
+				"Miscellaneous certificate options");
+			s = ctrl_getset(b, "Connection/SSH/Certificate/Miscellaneous", "x509_options", "X.509v3 options");
+			if (!cert_auth_x509_enabled(CERT_ENFORCED))
+			{
+				ctrl_checkbox(s, "Attempt X.509v3 certificate authentication",
+					NO_SHORTCUT, HELPCTX(no_help), cert_x509_event_handler, P(NULL));
+			}
+			ctrl_text(s, "Note: This is a global setting (shared with Pageant), not per-session. " \
+				"Most SSH servers and devices do not support X.509v3 authentication per (RFC 6187).", HELPCTX(no_help));
+
+			// certificate selection filters (shared by PuTTY and Pageant)
+			s = ctrl_getset(b, "Connection/SSH/Certificate/Miscellaneous", "filter_params", "Certificate selection filters");
+			ctrl_columns(s, 3, 45, 10, 45);
+
+			ctrl_text(s, "Use these options to filter the certificates shown in " \
+				"PuTTY and Pageant certificate selection dialog boxes.", HELPCTX(no_help));
+
+			if (!cert_trusted_certs_only(CERT_ENFORCED))
+			{
+				capid->capi_trusted_certs_checkbox = ctrl_checkbox(s, "Only Trusted",
+					NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
+				capid->capi_trusted_certs_checkbox->column = 0;
+			}
+
+			if (!cert_smartcard_certs_only(CERT_ENFORCED))
+			{
+				capid->capi_smartcard_only_checkbox = ctrl_checkbox(s, "Only Smart Card",
+					NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
+				capid->capi_smartcard_only_checkbox->column = 0;
+			}
+
+			if (!cert_ignore_expired_certs(CERT_ENFORCED))
+			{
+				capid->capi_no_expired_checkbox = ctrl_checkbox(s, "Not Expired",
+					NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
+				capid->capi_no_expired_checkbox->column = 2;
+			}
 
 			/*
 			 * The Portable panel (root level).

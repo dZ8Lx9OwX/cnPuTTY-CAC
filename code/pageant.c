@@ -447,7 +447,16 @@ static bool pageant_add_ssh2_key(ssh2_userkey *skey)
 #ifdef PUTTY_CAC
     if (cert_is_certpath(skey->comment))
     {
-        ssh2_userkey * userkey = cert_load_key(skey->comment);
+        ssh2_userkey *userkey = cert_load_key_for_keyalg(skey->comment, skey->key->vt);
+        if (!userkey || !userkey->key) {
+            if (userkey) {
+                sfree(userkey->comment);
+                sfree(userkey);
+            }
+            pk_pub_free(pub);
+            pk_priv_free(priv);
+            return false;
+        }
         priv->skey = userkey->key;
         priv->encrypted_key_comment = userkey->comment;
         sfree(userkey);
@@ -738,22 +747,10 @@ static void signop_coroutine(PageantAsyncOp *pao)
 #ifdef PUTTY_CAC
     if (cert_is_certpath(so->priv->encrypted_key_comment))
     {
-        ssh2_userkey* newkey = cert_load_key(so->priv->encrypted_key_comment);
-        if (newkey == NULL)
-        {
-            response = strbuf_new();
-            failure(so->pao.info->pc, so->pao.reqid, response, so->failure_type,
-                "key invalid: %s", so->priv->encrypted_key_comment);
-            goto respond;
-        }
-        const ssh_keyalg *orig_vt = newkey->key->vt;
-        // Temporarily override the key's vtable to match the requested signature format during signing
-        newkey->key->vt = so->priv->skey->vt;
-        BOOL bSigned = cert_sign(newkey, (LPCBYTE)so->data_to_sign->u, so->data_to_sign->len, so->flags, signature);
-        newkey->key->vt = orig_vt;
-        newkey->key->vt->freekey(newkey->key);
-        sfree(newkey->comment);
-        sfree(newkey);
+        BOOL bSigned = cert_sign_for_keyalg(
+            so->priv->encrypted_key_comment, so->priv->skey->vt,
+            (LPCBYTE)so->data_to_sign->u, so->data_to_sign->len,
+            so->flags, signature);
         if (!bSigned)
         {
             response = strbuf_new();

@@ -6,7 +6,9 @@
 
 // forward declarations for shared structures
 struct ssh2_userkey;
+struct ssh_keyalg;
 struct strbuf;
+struct conf_tag;
 
 // used to determine whether these variables are marked as extern
 // for external source files including these files
@@ -31,6 +33,15 @@ typedef enum CERT_SETCMD
 }
 CERT_SETCMD;
 
+typedef enum CERT_HASHALG
+{
+	CERT_HASH_SHA1,
+	CERT_HASH_SHA256,
+	CERT_HASH_SHA384,
+	CERT_HASH_SHA512
+}
+CERT_HASHALG;
+
 // functions used only by the capi and pkcs addon modules
 EXTERN VOID cert_reverse_array(LPBYTE pb, DWORD cb);
 EXTERN BOOL cert_load_cert(LPCSTR szCert, PCERT_CONTEXT * ppCertContext, HCERTSTORE * phCertStore);
@@ -44,9 +55,18 @@ EXTERN BOOL cert_ignore_expired_certs(CERT_SETCMD iCommand);
 EXTERN BOOL cert_trusted_certs_only(CERT_SETCMD iCommand);
 EXTERN BOOL cert_allow_any_cert(CERT_SETCMD iCommand);
 EXTERN BOOL cert_auto_load_certs(CERT_SETCMD iCommand);
+EXTERN BOOL cert_auth_x509_enabled(CERT_SETCMD iCommand);
 EXTERN LPCSTR cert_ignore_cert_name(LPCSTR sValue);
 EXTERN BOOL cert_cmdline_parse(LPCSTR sCommand);
 EXTERN DWORD cert_menu_flags(BOOL(*func)(CERT_SETCMD iCommand));
+EXTERN CERT_HASHALG cert_resolve_hash_alg(struct ssh2_userkey * userkey, int iAgentFlags,
+	LPCSTR szAlgo, DWORD iHashRequest, LPCSTR * psResolvedAlgo,
+	DWORD * piHashAlg, LPCWSTR * psHashAlgId);
+EXTERN BOOL cert_is_x509_keyalg(const struct ssh_keyalg * vt);
+EXTERN struct ssh2_userkey * cert_load_key_with_x509(LPCSTR szCert, BOOL bAttemptX509);
+EXTERN struct ssh2_userkey * cert_load_key_for_keyalg(LPCSTR szCert, const struct ssh_keyalg * requested_vt);
+EXTERN BOOL cert_sign_for_keyalg(LPCSTR szCert, const struct ssh_keyalg * requested_vt,
+	LPCBYTE pDataToSign, int iDataToSignLen, int iAgentFlags, struct strbuf * pSignature);
 
 // functions used by putty code 
 EXTERN LPSTR cert_key_string(LPCSTR szCert);
