@@ -49,6 +49,18 @@ struct kexinit_algorithm_list {
     size_t nalgs, algsize;
 };
 
+#ifdef PUTTY_CAC
+// Append x509v3-ssh-rsa and x509v3-rsa2048-sha256 to the supported host key algorithms when PUTTY_CAC is enabled
+#define PUTTY_CAC_HOSTKEY_ALGORITHMS(X) \
+    X(HK_RSA, ssh_x509v3_rsa2048_sha256) \
+    X(HK_RSA, ssh_x509v3_ssh_rsa) \
+    X(HK_ECDSA, ssh_x509v3_ecdsa_nistp256) \
+    X(HK_ECDSA, ssh_x509v3_ecdsa_nistp384) \
+    X(HK_ECDSA, ssh_x509v3_ecdsa_nistp521)
+#else
+#define PUTTY_CAC_HOSTKEY_ALGORITHMS(X)
+#endif
+
 #define HOSTKEY_ALGORITHMS(X)                                   \
     X(HK_ED25519, ssh_ecdsa_ed25519)                            \
     X(HK_ED448, ssh_ecdsa_ed448)                                \
@@ -59,6 +71,7 @@ struct kexinit_algorithm_list {
     X(HK_RSA, ssh_rsa_sha512)                                   \
     X(HK_RSA, ssh_rsa_sha256)                                   \
     X(HK_RSA, ssh_rsa)                                          \
+    PUTTY_CAC_HOSTKEY_ALGORITHMS(X)                             \
     X(HK_ED25519, opensshcert_ssh_ecdsa_ed25519)                \
     /* OpenSSH defines no certified version of Ed448 */         \
     X(HK_ECDSA, opensshcert_ssh_ecdsa_nistp256)                 \

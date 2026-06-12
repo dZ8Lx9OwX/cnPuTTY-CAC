@@ -858,7 +858,8 @@ void cert_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
 		conf_set_str(conf, CONF_cert_fingerprint, szCert);
 		conf_set_bool(conf, CONF_cert_attempt_auth, 1);
 		dlg_checkbox_set(certd->cert_auth_checkbox, dlg, 1);
-		*strrchr(szCert, '=') = '\0';
+		char* equals = strrchr(szCert, '=');
+		if (equals != NULL) *equals = '\0';
 		dlg_text_set(certd->cert_thumbprint_text, dlg, szCert);
 		sfree(szCert);
 	}
@@ -948,6 +949,7 @@ void fido_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
 				L"此值不能为空。" \
 				L"请检查此值并重试。",
 				L"FIDO 密钥创建参数无效", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
+			if (szDisplayName != NULL) sfree(szDisplayName);
 			return;
 		}
 
@@ -959,6 +961,8 @@ void fido_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
 				L"出于兼容性原因，此值必须以'ssh:'开头。" \
 				L"请检查此值，然后重试。",
 				L"FIDO 密钥创建参数无效", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
+			sfree(szDisplayName);
+			if (szAppId != NULL) sfree(szAppId);
 			return;
 		}
 
@@ -972,9 +976,14 @@ void fido_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
 		{
 			CertFreeCertificateContext(pCert);
 			CertCloseStore(hCertStore, 0);
-			if (MessageBoxW(NULL, L"具有此名称的FIDO键似乎已经存在。" \
-				L"PuTTY CAC可能无法确定要使用哪个密钥。是否确实要继续？？",
-				L"检测到FIDO重复密钥", MB_SYSTEMMODAL | MB_ICONQUESTION | MB_YESNO) != IDYES) return;
+			if (MessageBoxW(NULL, L"具有此名称的FIDO密钥似乎已经存在。" \
+				L"PuTTY CAC 可能无法确定要使用哪个密钥。你确定要继续吗？？",
+				L"检测到重复的FIDO密钥", MB_SYSTEMMODAL | MB_ICONQUESTION | MB_YESNO) != IDYES)
+			{
+				sfree(szDisplayName);
+				sfree(szAppId);
+				return;
+			}
 		}
 
 		// fetch options from resident key and verification boxes
@@ -1000,6 +1009,7 @@ void fido_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
 			L"或者令牌可能不支持所选的算法/参数。",
 			L"FIDO密钥创建失败", MB_SYSTEMMODAL | MB_ICONERROR | MB_OK);
 
+		sfree(szDisplayName);
 		sfree(szAppId);
 	}
 
@@ -1166,6 +1176,15 @@ void capi_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
 	{
 		dlg_radiobutton_set(ctrl, dlg, 0);
 	}
+}
+
+void cert_x509_event_handler(dlgcontrol* ctrl, dlgparam* dlg, void* data, int event)
+{
+	// Global setting shared by PuTTY and Pageant, not per-session
+	if (event == EVENT_REFRESH)
+		dlg_checkbox_set(ctrl, dlg, cert_auth_x509_enabled(CERT_QUERY));
+	if (event == EVENT_VALCHANGE)
+		cert_auth_x509_enabled(dlg_checkbox_get(ctrl, dlg) ? CERT_SET : CERT_UNSET);
 }
 
 struct portable_data {
@@ -3487,34 +3506,6 @@ void setup_config_box(struct controlbox *b, bool midsession,
 				NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
 			capid->capi_create_key_button->column = 2;
 
-			// selection for capi filter
-			s = ctrl_getset(b, "连接/SSH/证书/CAPI工具", "filter_params", "证书选择筛选器：");
-			ctrl_columns(s, 3, 45, 10, 45);
-
-			ctrl_text(s, "使用选项用来筛选PuTTY和Pageant证书" \
-				"选择对话框中显示的证书", HELPCTX(no_help));
-
-            if (!cert_trusted_certs_only(CERT_ENFORCED))
-            {
-                capid->capi_trusted_certs_checkbox = ctrl_checkbox(s, "仅受信任的",
-                    NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
-                capid->capi_trusted_certs_checkbox->column = 0;
-            }
-
-            if (!cert_smartcard_certs_only(CERT_ENFORCED))
-            {
-                capid->capi_smartcard_only_checkbox = ctrl_checkbox(s, "仅智能卡",
-                    NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
-                capid->capi_smartcard_only_checkbox->column = 0;
-            }
-
-            if (!cert_ignore_expired_certs(CERT_ENFORCED))
-            {
-                capid->capi_no_expired_checkbox = ctrl_checkbox(s, "未过期的",
-                    NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
-                capid->capi_no_expired_checkbox->column = 2;
-            }
-
 			// selection for other options filter
 			s = ctrl_getset(b, "连接/SSH/证书/CAPI工具", "other_params", "其它选项：");
 			ctrl_columns(s, 3, 45, 10, 45);
@@ -3526,6 +3517,46 @@ void setup_config_box(struct controlbox *b, bool midsession,
 			capid->capi_delete_key_button = ctrl_pushbutton(s, "删除密钥...",
 				NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
 			capid->capi_delete_key_button->column = 2;
+
+			// The Connection/SSH/Certificate/Miscellaneous panel.
+			ctrl_settitle(b, "连接/SSH/证书/杂项",
+				"各种证书选项");
+			s = ctrl_getset(b, "连接/SSH/证书/杂项", "x509_options", "X.509v3 选项：");
+			if (!cert_auth_x509_enabled(CERT_ENFORCED))
+			{
+				ctrl_checkbox(s, "尝试 X.509v3 证书认证",
+					NO_SHORTCUT, HELPCTX(no_help), cert_x509_event_handler, P(NULL));
+			}
+			ctrl_text(s, "注意：这是一个全局设置(与 Pageant 共享)，不是每个会话单独的设置。" \
+				"大多数 SSH 服务器和设备不支持按照 X.509v3(RFC 6187) 认证。", HELPCTX(no_help));
+
+			// certificate selection filters (shared by PuTTY and Pageant)
+			s = ctrl_getset(b, "连接/SSH/证书/杂项", "filter_params", "证书选择筛选器：");
+			ctrl_columns(s, 3, 45, 10, 45);
+
+			ctrl_text(s, "使用选项用来筛选PuTTY和Pageant证书" \
+				"选择对话框中显示的证书", HELPCTX(no_help));
+
+			if (!cert_trusted_certs_only(CERT_ENFORCED))
+			{
+				capid->capi_trusted_certs_checkbox = ctrl_checkbox(s, "仅受信任的",
+					NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
+				capid->capi_trusted_certs_checkbox->column = 0;
+			}
+
+			if (!cert_smartcard_certs_only(CERT_ENFORCED))
+			{
+				capid->capi_smartcard_only_checkbox = ctrl_checkbox(s, "仅智能卡",
+					NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
+				capid->capi_smartcard_only_checkbox->column = 0;
+			}
+
+			if (!cert_ignore_expired_certs(CERT_ENFORCED))
+			{
+				capid->capi_no_expired_checkbox = ctrl_checkbox(s, "未过期的",
+					NO_SHORTCUT, HELPCTX(no_help), capi_event_handler, P(capid));
+				capid->capi_no_expired_checkbox->column = 2;
+			}
 
 			/*
 			 * The Portable panel (root level).

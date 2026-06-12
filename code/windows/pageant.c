@@ -87,6 +87,7 @@ static int initial_menuitems_count;
 #define IDM_AUTOCERT 0x0130
 #define IDM_SAVELIST 0x0140
 #define IDM_PINCACHE 0x0150
+#define IDM_X509AUTH 0x0160
 #define IDM_CERTAUTH 0x0170
 #define IDM_SCONLY   0x0180
 #define IDM_NOEXPR   0x0190
@@ -812,8 +813,12 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
 
 				  int * selectedArray = snewn(numSelected, int);
 			  	  SendDlgItemMessage(hwnd, IDC_KEYLIST_LISTBOX, LB_GETSELITEMS, numSelected, (WPARAM)selectedArray);
-				  char * comment = (pageant_nth_ssh2_comment(selectedArray[0]));
-				  cert_display_cert(comment, hwnd);
+				  int rCount = pageant_count_ssh1_keys();
+				  if (selectedArray[0] >= rCount)
+				  {
+					  char * comment = pageant_nth_ssh2_comment(selectedArray[0] - rCount);
+					  cert_display_cert(comment, hwnd);
+				  }
 				  sfree(selectedArray);
 			  }
 		  }
@@ -849,24 +854,29 @@ static INT_PTR CALLBACK KeyListProc(HWND hwnd, UINT msg,
 
 			/* enumerate each selected item */
 			LPSTR szClipString = dupstr("");
+			int rCount = pageant_count_ssh1_keys();
 			for (int iSelected = 0; iSelected < numSelected; iSelected++)
 			{
+				if (selectedArray[iSelected] < rCount)
+					continue;
+
+				int ssh2Index = selectedArray[iSelected] - rCount;
 				/* get the comment from the key */
-				char * comment = pageant_nth_ssh2_comment(selectedArray[iSelected]);
+				char * comment = pageant_nth_ssh2_comment(ssh2Index);
                 
-                // handle request for the key format
-                LPSTR szClipStringAddon = NULL;
-                if (clipkey) szClipStringAddon = (comment && cert_is_certpath(comment)) ?
-                    cert_key_string(comment) : pageant_nth_ssh2_string(selectedArray[iSelected]);
+				// handle request for the key format
+				LPSTR szClipStringAddon = NULL;
+				if (clipkey) szClipStringAddon = (comment && cert_is_certpath(comment)) ?
+					cert_key_string(comment) : pageant_nth_ssh2_string(ssh2Index);
 
-                // handle request for the comment
-                else if (comment && cert_is_certpath(comment)) szClipStringAddon = dupstr(comment);
+				// handle request for the comment
+				else if (comment && cert_is_certpath(comment)) szClipStringAddon = dupstr(comment);
 
-                // no valid string to append; ignore
+				// no valid string to append; ignore
 				if (szClipStringAddon == NULL) continue;
 
 				/* add to cumulative key string */
-                LPCSTR szSeperator = (clipkey) ? "\n" : " ";
+				LPCSTR szSeperator = (clipkey) ? "\n" : " ";
 				LPSTR szClipStringNew = dupcat(szClipString, (strlen(szClipString) > 0) ? szSeperator : "",
 					szClipStringAddon);
 
@@ -1559,6 +1569,14 @@ static LRESULT CALLBACK TrayWndProc(HWND hwnd, UINT message,
 		  cert_cache_enabled(ForcePinCaching ? CERT_SET : CERT_UNSET);
 		  RegSetKeyValue(HKEY_CURRENT_USER, PUTTY_REG_POS, "ForcePinCaching", REG_DWORD, &ForcePinCaching, sizeof(DWORD));
 	  } break;
+	  case IDM_X509AUTH: {
+		  DWORD iItem = CheckMenuItem(systray_menu, IDM_X509AUTH, MF_CHECKED);
+		  DWORD iNewState = (iItem == MF_CHECKED) ? MF_UNCHECKED : MF_CHECKED;
+		  CheckMenuItem(systray_menu, IDM_X509AUTH, iNewState);
+		  BOOL bEnabled = (iNewState == MF_CHECKED);
+		  // cert_auth_x509_enabled persists the global setting in the registry
+		  cert_auth_x509_enabled(bEnabled ? CERT_SET : CERT_UNSET);
+	  } break;
 	  case IDM_CERTAUTH: {
 		  DWORD iItem = CheckMenuItem(systray_menu, IDM_CERTAUTH, MF_CHECKED);
 		  DWORD iNewState = (iItem == MF_CHECKED) ? MF_UNCHECKED : MF_CHECKED;
@@ -2187,6 +2205,7 @@ int WINAPI WinMain(HINSTANCE inst, HINSTANCE prev, LPSTR cmdline, int show)
 	AppendMenu(systray_menu, cert_menu_flags(cert_save_cert_list_enabled), IDM_SAVELIST, "记录密钥/证书");
 	AppendMenu(systray_menu, cert_menu_flags(cert_cache_enabled), IDM_PINCACHE, "强制PIN缓存");
 	AppendMenu(systray_menu, cert_menu_flags(cert_auth_prompting), IDM_CERTAUTH, "密钥/证书身份验证提示");
+	AppendMenu(systray_menu, cert_menu_flags(cert_auth_x509_enabled), IDM_X509AUTH, "尝试 X.509v3 证书认证");
 	AppendMenu(systray_menu, MF_SEPARATOR, 0, NULL);
 	AppendMenu(systray_menu, cert_menu_flags(cert_smartcard_certs_only), IDM_SCONLY, "筛选:智能卡登录证书");
     AppendMenu(systray_menu, cert_menu_flags(cert_trusted_certs_only), IDM_TRUSTED, "筛选:受信任的证书");

@@ -92,6 +92,10 @@ typedef struct strbuf strbuf;
 typedef struct LoadedFile LoadedFile;
 
 typedef struct RSAKey RSAKey;
+#ifdef PUTTY_CAC
+typedef struct x509_ssh_rsa_key x509_ssh_rsa_key;
+typedef struct x509_ssh_ecdsa_key x509_ssh_ecdsa_key;
+#endif
 
 typedef struct BinarySink BinarySink;
 typedef struct BinarySource BinarySource;

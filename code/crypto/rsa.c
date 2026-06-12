@@ -955,6 +955,352 @@ const ssh_keyalg ssh_rsa_sha512 = {
     .extra = &rsa_sha512_extra,
 };
 
+#ifdef PUTTY_CAC
+// Read one definite-length DER tag-length-value triple from [*pos, end), storing tag/value and advancing *pos; rejects indefinite and >4-octet lengths. Bounds checks avoid forming a past-the-end pointer (UB, and wraps on 32-bit)
+static bool der_read_tlv(const unsigned char **pos, const unsigned char *end,
+                         unsigned char *tag, ptrlen *value)
+{
+    const unsigned char *p = *pos;
+
+    if (p >= end)
+        return false;
+    *tag = *p++;
+
+    if (p >= end)
+        return false;
+    size_t len = *p++;
+    if (len & 0x80) {
+        unsigned len_bytes = len & 0x7F;
+        if (len_bytes < 1 || len_bytes > 4 || (size_t)(end - p) < len_bytes)
+            return false;
+        len = 0;
+        while (len_bytes-- > 0)
+            len = (len << 8) | *p++;
+    }
+    if (len > (size_t)(end - p))
+        return false;
+
+    value->ptr = p;
+    value->len = len;
+    *pos = p + len;
+    return true;
+}
+
+bool x509_cert_subject_public_key(ptrlen cert, ptrlen *spk_out)
+{
+    const unsigned char *p = cert.ptr;
+    const unsigned char *end = p + cert.len;
+    unsigned char tag;
+    ptrlen v;
+
+    // Certificate ::= SEQUENCE { tbsCertificate, ... }; descend into it
+    if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x30)
+        return false;
+    p = v.ptr;
+    end = (const unsigned char *)v.ptr + v.len;
+
+    // tbsCertificate ::= SEQUENCE { ... }; descend into it
+    if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x30)
+        return false;
+    p = v.ptr;
+    end = (const unsigned char *)v.ptr + v.len;
+
+    // tbsCertificate: optional [0] version, INTEGER serialNumber, then five SEQUENCEs (signature, issuer, validity, subject, SPKI); skip up to and including SPKI
+    if (p < end && *p == 0xA0 && !der_read_tlv(&p, end, &tag, &v))
+        return false;
+    if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x02)   // serialNumber
+        return false;
+    for (int i = 0; i < 4; i++)   // signature, issuer, validity, subject
+        if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x30)
+            return false;
+    if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x30)   // SPKI
+        return false;
+
+    // SubjectPublicKeyInfo ::= SEQUENCE { algorithm, subjectPublicKey BIT STRING }; descend in and take the BIT STRING
+    p = v.ptr;
+    end = (const unsigned char *)v.ptr + v.len;
+    if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x30)   // algorithm
+        return false;
+    if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x03)   // subjectPublicKey
+        return false;
+
+    // First BIT STRING octet is the unused-bit count (zero for a public key); the rest is the key
+    if (v.len < 1 || ((const unsigned char *)v.ptr)[0] != 0x00)
+        return false;
+    spk_out->ptr = (const unsigned char *)v.ptr + 1;
+    spk_out->len = v.len - 1;
+    return true;
+}
+
+// Extract RSA modulus/exponent from an X.509 cert, whose subjectPublicKey is a DER RSAPublicKey ::= SEQUENCE { INTEGER modulus, INTEGER publicExponent }
+static bool parse_x509_rsa_pubkey(ptrlen cert, mp_int **modulus_out,
+                                  mp_int **exponent_out)
+{
+    ptrlen spk;
+    if (!x509_cert_subject_public_key(cert, &spk))
+        return false;
+
+    const unsigned char *p = spk.ptr;
+    const unsigned char *end = (const unsigned char *)spk.ptr + spk.len;
+    unsigned char tag;
+    ptrlen v;
+
+    if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x30)   // RSAPublicKey
+        return false;
+    p = v.ptr;
+    end = (const unsigned char *)v.ptr + v.len;
+
+    if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x02)   // modulus
+        return false;
+    *modulus_out = mp_from_bytes_be(v);
+
+    if (!der_read_tlv(&p, end, &tag, &v) || tag != 0x02)   // publicExponent
+        return false;
+    *exponent_out = mp_from_bytes_be(v);
+
+    return true;
+}
+
+static void x509_ssh_rsa_freekey(ssh_key *key);
+
+static ssh_key *x509_ssh_rsa_new_pub(const ssh_keyalg *self, ptrlen pub)
+{
+    BinarySource src[1];
+    BinarySource_BARE_INIT_PL(src, pub);
+
+    if (!ptrlen_eq_string(get_string(src), self->ssh_id))
+        return NULL;
+
+    uint32_t cert_count = get_uint32(src);
+    if (cert_count < 1)
+        return NULL;
+
+    ptrlen cert_pl = get_string(src);
+    if (get_err(src))
+        return NULL;
+
+    struct x509_ssh_rsa_key *xkey = snew(struct x509_ssh_rsa_key);
+    memset(xkey, 0, sizeof(*xkey));
+    xkey->rsa.sshk.vt = self;
+
+    xkey->cert_len = cert_pl.len;
+    xkey->cert_data = snewn(xkey->cert_len, unsigned char);
+    memcpy(xkey->cert_data, cert_pl.ptr, xkey->cert_len);
+
+    if (!parse_x509_rsa_pubkey(make_ptrlen(xkey->cert_data, xkey->cert_len),
+                               &xkey->rsa.modulus, &xkey->rsa.exponent)) {
+        x509_ssh_rsa_freekey(&xkey->rsa.sshk);
+        return NULL;
+    }
+
+    xkey->rsa.bits = mp_get_nbits(xkey->rsa.modulus);
+    xkey->rsa.bytes = (xkey->rsa.bits + 7) / 8;
+
+    return &xkey->rsa.sshk;
+}
+
+static void x509_ssh_rsa_freekey(ssh_key *key)
+{
+    RSAKey *rsa = container_of(key, RSAKey, sshk);
+    struct x509_ssh_rsa_key *xkey = container_of(rsa, struct x509_ssh_rsa_key, rsa);
+    freersakey(&xkey->rsa);
+    sfree(xkey->cert_data);
+    sfree(xkey);
+}
+
+static void x509_ssh_rsa_public_blob(ssh_key *key, BinarySink *bs)
+{
+    RSAKey *rsa = container_of(key, RSAKey, sshk);
+    struct x509_ssh_rsa_key *xkey = container_of(rsa, struct x509_ssh_rsa_key, rsa);
+
+    put_stringz(bs, key->vt->ssh_id);
+    put_uint32(bs, 1);
+    put_string(bs, xkey->cert_data, xkey->cert_len);
+    put_uint32(bs, 0);                 /* OCSP response count */
+}
+
+// Map an x509v3 RSA key id to its hash, RFC 6187 signature name, and modulus-length padding (x509v3-rsa2048-sha256 pads like RFC 8332; x509v3-ssh-rsa uses the minimal unpadded integer of RFC 4253)
+static const ssh_hashalg *x509_ssh_rsa_sigparams(
+    const char *ssh_id, const char **sig_name, bool *pad_to_modulus)
+{
+    if (strcmp(ssh_id, "x509v3-rsa2048-sha256") == 0) {
+        *sig_name = "rsa2048-sha256";
+        *pad_to_modulus = true;
+        return &ssh_sha256;
+    }
+    *sig_name = "ssh-rsa";
+    *pad_to_modulus = false;
+    return &ssh_sha1;
+}
+
+static void x509_ssh_rsa_sign(ssh_key *key, ptrlen data,
+                               unsigned flags, BinarySink *bs)
+{
+    RSAKey *rsa = container_of(key, RSAKey, sshk);
+    const char *sig_name;
+    bool pad_to_modulus;
+    const ssh_hashalg *halg =
+        x509_ssh_rsa_sigparams(key->vt->ssh_id, &sig_name, &pad_to_modulus);
+
+    size_t nbytes = (mp_get_nbits(rsa->modulus) + 7) / 8;
+    unsigned char *bytes = rsa_pkcs1_signature_string(nbytes, halg, data);
+    mp_int *in = mp_from_bytes_be(make_ptrlen(bytes, nbytes));
+    smemclr(bytes, nbytes);
+    sfree(bytes);
+
+    mp_int *out = rsa_privkey_op(in, rsa);
+    mp_free(in);
+
+    put_stringz(bs, sig_name);
+    size_t sig_nbytes = pad_to_modulus ? nbytes : (mp_get_nbits(out) + 7) / 8;
+    put_uint32(bs, sig_nbytes);
+    for (size_t i = 0; i < sig_nbytes; i++)
+        put_byte(bs, mp_get_byte(out, sig_nbytes - 1 - i));
+
+    mp_free(out);
+}
+
+static bool x509_ssh_rsa_verify(ssh_key *key, ptrlen sig, ptrlen data)
+{
+    RSAKey *rsa = container_of(key, RSAKey, sshk);
+    const char *sig_name;
+    bool pad_to_modulus;
+    const ssh_hashalg *halg =
+        x509_ssh_rsa_sigparams(key->vt->ssh_id, &sig_name, &pad_to_modulus);
+
+    size_t nbytes = (mp_get_nbits(rsa->modulus) + 7) / 8;
+    if (nbytes < rsa_pkcs1_length_of_fixed_parts(halg))
+        return false;
+
+    BinarySource src[1];
+    BinarySource_BARE_INIT_PL(src, sig);
+    ptrlen type = get_string(src);
+    ptrlen in_pl = get_string(src);
+    if (get_err(src) || !ptrlen_eq_string(type, sig_name))
+        return false;
+
+    mp_int *in = mp_from_bytes_be(in_pl);
+    mp_int *out = mp_modpow(in, rsa->exponent, rsa->modulus);
+    mp_free(in);
+
+    unsigned diff = 0;
+    unsigned char *bytes = rsa_pkcs1_signature_string(nbytes, halg, data);
+    for (size_t i = 0; i < nbytes; i++)
+        diff |= bytes[nbytes-1 - i] ^ mp_get_byte(out, i);
+    smemclr(bytes, nbytes);
+    sfree(bytes);
+    mp_free(out);
+
+    return diff == 0;
+}
+
+static key_components *x509_ssh_rsa_components(ssh_key *key)
+{
+    RSAKey *rsa = container_of(key, RSAKey, sshk);
+    return rsa_components(rsa);
+}
+
+static char *x509_ssh_rsa_cache_str(ssh_key *key)
+{
+    RSAKey *rsa = container_of(key, RSAKey, sshk);
+    return rsastr_fmt(rsa);
+}
+
+static int x509_ssh_rsa_pubkey_bits(const ssh_keyalg *self, ptrlen pub)
+{
+    ssh_key *sshk = x509_ssh_rsa_new_pub(self, pub);
+    if (!sshk)
+        return -1;
+    RSAKey *rsa = container_of(sshk, RSAKey, sshk);
+    int ret = mp_get_nbits(rsa->modulus);
+    x509_ssh_rsa_freekey(sshk);
+    return ret;
+}
+
+static char *x509_ssh_rsa_alg_desc(const ssh_keyalg *self)
+{
+    return dupstr("RSA (X.509v3)");
+}
+
+static unsigned x509_ssh_rsa_supported_flags(const ssh_keyalg *self)
+{
+    return SSH_AGENT_RSA_SHA2_256;
+}
+
+static const char *x509_ssh_rsa_alternate_ssh_id(
+    const ssh_keyalg *self, unsigned flags)
+{
+    if (flags & SSH_AGENT_RSA_SHA2_256)
+        return ssh_x509v3_rsa2048_sha256.ssh_id;
+    return self->ssh_id;
+}
+
+static char *x509_ssh_rsa_invalid(ssh_key *key, unsigned flags)
+{
+    RSAKey *rsa = container_of(key, RSAKey, sshk);
+    size_t bits = mp_get_nbits(rsa->modulus);
+
+    if (strcmp(key->vt->ssh_id, "x509v3-rsa2048-sha256") == 0 ||
+        (strcmp(key->vt->ssh_id, "x509v3-ssh-rsa") == 0 && (flags & SSH_AGENT_RSA_SHA2_256))) {
+        if (bits < 2048) {
+            return dupprintf(
+                "%"SIZEu"-bit RSA key is too short to generate x509v3-rsa2048-sha256 signatures (minimum 2048 bits)",
+                bits);
+        }
+    }
+
+    return rsa2_invalid(key, flags);
+}
+
+const ssh_keyalg ssh_x509v3_ssh_rsa = {
+    .new_pub = x509_ssh_rsa_new_pub,
+    .new_priv = NULL,
+    .new_priv_openssh = NULL,
+    .freekey = x509_ssh_rsa_freekey,
+    .invalid = x509_ssh_rsa_invalid,
+    .sign = x509_ssh_rsa_sign,
+    .verify = x509_ssh_rsa_verify,
+    .public_blob = x509_ssh_rsa_public_blob,
+    .private_blob = NULL,
+    .openssh_blob = NULL,
+    .has_private = rsa2_has_private,
+    .cache_str = x509_ssh_rsa_cache_str,
+    .components = x509_ssh_rsa_components,
+    .base_key = nullkey_base_key,
+    .pubkey_bits = x509_ssh_rsa_pubkey_bits,
+    .alg_desc = x509_ssh_rsa_alg_desc,
+    .variable_size = nullkey_variable_size_yes,
+    .cache_id = "x509v3-ssh-rsa",
+    .ssh_id = "x509v3-ssh-rsa",
+    .supported_flags = x509_ssh_rsa_supported_flags,
+    .alternate_ssh_id = x509_ssh_rsa_alternate_ssh_id,
+};
+
+const ssh_keyalg ssh_x509v3_rsa2048_sha256 = {
+    .new_pub = x509_ssh_rsa_new_pub,
+    .new_priv = NULL,
+    .new_priv_openssh = NULL,
+    .freekey = x509_ssh_rsa_freekey,
+    .invalid = x509_ssh_rsa_invalid,
+    .sign = x509_ssh_rsa_sign,
+    .verify = x509_ssh_rsa_verify,
+    .public_blob = x509_ssh_rsa_public_blob,
+    .private_blob = NULL,
+    .openssh_blob = NULL,
+    .has_private = rsa2_has_private,
+    .cache_str = x509_ssh_rsa_cache_str,
+    .components = x509_ssh_rsa_components,
+    .base_key = nullkey_base_key,
+    .pubkey_bits = x509_ssh_rsa_pubkey_bits,
+    .alg_desc = x509_ssh_rsa_alg_desc,
+    .variable_size = nullkey_variable_size_yes,
+    .cache_id = "x509v3-rsa2048-sha256",
+    .ssh_id = "x509v3-rsa2048-sha256",
+    .supported_flags = nullkey_supported_flags,
+    .alternate_ssh_id = nullkey_alternate_ssh_id,
+};
+#endif
+
 RSAKey *ssh_rsakex_newkey(ptrlen data)
 {
     ssh_key *sshk = rsa2_new_pub(&ssh_rsa, data);

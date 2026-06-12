@@ -27,6 +27,54 @@
 #define PUTTY_REG_POS "Software\\SimonTatham\\PuTTY"
 #endif
 
+BOOL cert_is_x509_keyalg(const ssh_keyalg* vt)
+{
+	return vt != NULL && vt->ssh_id != NULL && strstartswith(vt->ssh_id, "x509v3-");
+}
+
+struct ssh2_userkey* cert_load_key_for_keyalg(LPCSTR szCert, const ssh_keyalg* requested_vt)
+{
+	struct ssh2_userkey* userkey = cert_load_key_with_x509(
+		szCert, cert_is_x509_keyalg(requested_vt));
+
+	if (userkey != NULL && userkey->key != NULL && requested_vt != NULL)
+	{
+		userkey->key->vt = requested_vt;
+	}
+
+	return userkey;
+}
+
+BOOL cert_sign_for_keyalg(LPCSTR szCert, const ssh_keyalg* requested_vt,
+	LPCBYTE pDataToSign, int iDataToSignLen, int iAgentFlags, struct strbuf* pSignature)
+{
+	struct ssh2_userkey* userkey = cert_load_key_for_keyalg(szCert, requested_vt);
+	if (userkey == NULL || userkey->key == NULL)
+	{
+		if (userkey != NULL)
+		{
+			sfree(userkey->comment);
+			sfree(userkey);
+		}
+
+		return FALSE;
+	}
+
+	const ssh_keyalg* orig_vt = userkey->key->vt;
+	if (requested_vt != NULL)
+	{
+		userkey->key->vt = requested_vt;
+	}
+
+	BOOL bSigned = cert_sign(userkey, pDataToSign, iDataToSignLen, iAgentFlags, pSignature);
+
+	userkey->key->vt = orig_vt;
+	userkey->key->vt->freekey(userkey->key);
+	sfree(userkey->comment);
+	sfree(userkey);
+	return bSigned;
+}
+
 VOID cert_reverse_array(LPBYTE pb, DWORD cb)
 {
 	if (cb < 2) return;
@@ -211,6 +259,131 @@ BOOL cert_test_hash(LPCSTR szCert, DWORD iHashRequest)
 	return TRUE;
 }
 
+static CERT_HASHALG cert_hash_alg_from_name(LPCSTR szAlgo)
+{
+	if (szAlgo == NULL)
+	{
+		return CERT_HASH_SHA1;
+	}
+
+	if (strstartswith(szAlgo, "x509v3-"))
+	{
+		szAlgo += strlen("x509v3-");
+	}
+
+	if (strstr(szAlgo, "sha2-512") != NULL || strstr(szAlgo, "nistp521") != NULL)
+	{
+		return CERT_HASH_SHA512;
+	}
+
+	if (strstr(szAlgo, "sha2-384") != NULL || strstr(szAlgo, "nistp384") != NULL)
+	{
+		return CERT_HASH_SHA384;
+	}
+
+	if (strcmp(szAlgo, "rsa2048-sha256") == 0 || strstr(szAlgo, "sha2-256") != NULL ||
+		strstr(szAlgo, "nistp256") != NULL || strstr(szAlgo, "ed25519") != NULL)
+	{
+		return CERT_HASH_SHA256;
+	}
+
+	return CERT_HASH_SHA1;
+}
+
+CERT_HASHALG cert_resolve_hash_alg(struct ssh2_userkey* userkey, int iAgentFlags,
+	LPCSTR szAlgo, DWORD iHashRequest, LPCSTR* psResolvedAlgo,
+	DWORD* piHashAlg, LPCWSTR* psHashAlgId)
+{
+	LPCSTR sResolvedAlgo = szAlgo;
+
+	if (userkey != NULL)
+	{
+		if (userkey->key == NULL || userkey->key->vt == NULL || userkey->key->vt->ssh_id == NULL)
+		{
+			sResolvedAlgo = NULL;
+		}
+		else
+		{
+			sResolvedAlgo = userkey->key->vt->ssh_id;
+			if (strcmp(sResolvedAlgo, "x509v3-ssh-rsa") == 0)
+			{
+				sResolvedAlgo = (iAgentFlags & SSH_AGENT_RSA_SHA2_256) ? "rsa2048-sha256" : "ssh-rsa";
+			}
+			else if (strstartswith(sResolvedAlgo, "x509v3-"))
+			{
+				sResolvedAlgo += strlen("x509v3-");
+			}
+			else if (strstr(sResolvedAlgo, "ssh-rsa"))
+			{
+				if ((iAgentFlags & SSH_AGENT_RSA_SHA2_512) && userkey->comment != NULL &&
+					cert_test_hash(userkey->comment, SSH_AGENT_RSA_SHA2_512))
+				{
+					sResolvedAlgo = "rsa-sha2-512";
+				}
+				else if ((iAgentFlags & SSH_AGENT_RSA_SHA2_256) && userkey->comment != NULL &&
+					cert_test_hash(userkey->comment, SSH_AGENT_RSA_SHA2_256))
+				{
+					sResolvedAlgo = "rsa-sha2-256";
+				}
+				else
+				{
+					sResolvedAlgo = "ssh-rsa";
+				}
+			}
+		}
+	}
+
+	if (psResolvedAlgo != NULL)
+	{
+		*psResolvedAlgo = sResolvedAlgo;
+	}
+
+	CERT_HASHALG iResolvedHash = cert_hash_alg_from_name(sResolvedAlgo);
+	if (iHashRequest == SSH_AGENT_RSA_SHA2_256)
+	{
+		iResolvedHash = CERT_HASH_SHA256;
+	}
+	else if (iHashRequest == SSH_AGENT_RSA_SHA2_512)
+	{
+		iResolvedHash = CERT_HASH_SHA512;
+	}
+
+	if (piHashAlg != NULL)
+	{
+		*piHashAlg = CALG_SHA1;
+	}
+
+	if (psHashAlgId != NULL)
+	{
+		// BCRYPT_SHA*_ALGORITHM and NCRYPT_SHA*_ALGORITHM share the same values
+		*psHashAlgId = BCRYPT_SHA1_ALGORITHM;
+	}
+
+	switch (iResolvedHash)
+	{
+	case CERT_HASH_SHA256:
+		if (piHashAlg != NULL) *piHashAlg = CALG_SHA_256;
+		if (psHashAlgId != NULL) *psHashAlgId = BCRYPT_SHA256_ALGORITHM;
+		break;
+
+	case CERT_HASH_SHA384:
+		if (piHashAlg != NULL) *piHashAlg = CALG_SHA_384;
+		if (psHashAlgId != NULL) *psHashAlgId = BCRYPT_SHA384_ALGORITHM;
+		break;
+
+	case CERT_HASH_SHA512:
+		if (piHashAlg != NULL) *piHashAlg = CALG_SHA_512;
+		if (psHashAlgId != NULL) *psHashAlgId = BCRYPT_SHA512_ALGORITHM;
+		break;
+
+	case CERT_HASH_SHA1:
+	default:
+		break;
+	}
+
+	return iResolvedHash;
+}
+
 BOOL cert_confirm_signing(LPCSTR sFingerPrint, LPCSTR sComment)
 {
 	// prompt if usage prompting is enabled
@@ -244,13 +417,9 @@ BOOL cert_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDataToSig
 	if (userkey->comment == NULL) return FALSE;
 
 	// determine hashing algorithm for signing - upgrade to sha2 if possible
-	LPCSTR sHashAlgName = userkey->key->vt->ssh_id;
-	if (strstr(userkey->key->vt->ssh_id, "ssh-rsa") && (iAgentFlags & SSH_AGENT_RSA_SHA2_256) && cert_test_hash(userkey->comment, SSH_AGENT_RSA_SHA2_256)) {
-		sHashAlgName = "rsa-sha2-256";
-	}
-	if (strstr(userkey->key->vt->ssh_id, "ssh-rsa") && (iAgentFlags & SSH_AGENT_RSA_SHA2_512) && cert_test_hash(userkey->comment, SSH_AGENT_RSA_SHA2_512)) {
-		sHashAlgName = "rsa-sha2-512";
-	}
+	LPCSTR sHashAlgName = NULL;
+	(void)cert_resolve_hash_alg(userkey, iAgentFlags, NULL, 0, &sHashAlgName, NULL, NULL);
+	if (sHashAlgName == NULL) return FALSE;
 
 	// sign data
 	{
@@ -273,7 +442,8 @@ BOOL cert_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDataToSig
 
 	// create full wrapped signature payload
 	if (strstr(userkey->key->vt->ssh_id, "ecdsa-") == userkey->key->vt->ssh_id ||
-		strstr(userkey->key->vt->ssh_id, "sk-ecdsa-") == userkey->key->vt->ssh_id)
+		strstr(userkey->key->vt->ssh_id, "sk-ecdsa-") == userkey->key->vt->ssh_id ||
+		strstr(userkey->key->vt->ssh_id, "x509v3-ecdsa-") == userkey->key->vt->ssh_id)
 	{
 		// For ECDSA keys the signature is encoded:
 		// 
@@ -283,9 +453,9 @@ BOOL cert_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDataToSig
 		//    mpint    s
 		//         byte       flags (sk-only)
 		//         uint32     counter (sk-only)
-
+		// 
 		// append algorithm
-		put_stringz(pSignature, userkey->key->vt->ssh_id);
+		put_stringz(pSignature, sHashAlgName);
 
 		// append signatures
 		strbuf* pRawSigWrapped = strbuf_new();
@@ -344,7 +514,8 @@ BOOL cert_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDataToSig
 	return TRUE;
 }
 
-struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertContext)
+static struct ssh2_userkey* cert_get_ssh_userkey(
+	LPCSTR szCert, PCERT_CONTEXT pCertContext, BOOL bAttemptX509)
 {
 	struct ssh2_userkey* pUserKey = NULL;
 
@@ -366,9 +537,22 @@ struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertCont
 				pPubKey->cbData, 0, pbPublicKeyBlob = malloc(cbPublicKeyBlob), &cbPublicKeyBlob) != FALSE)
 		{
 			// create a new putty rsa structure fill out all non-private params
-			struct RSAKey* rsa = snew(struct RSAKey);
-			*rsa = (struct RSAKey){0};
-			rsa->sshk.vt = find_pubkey_alg("ssh-rsa");
+			struct RSAKey* rsa;
+			struct x509_ssh_rsa_key* xkey = NULL;
+			// If X.509v3 behavior is enabled, allocate the X.509 wrapper struct and load the cert data
+			if (bAttemptX509) {
+				xkey = snew(struct x509_ssh_rsa_key);
+				*xkey = (struct x509_ssh_rsa_key){0};
+				rsa = &xkey->rsa;
+				rsa->sshk.vt = find_pubkey_alg("x509v3-ssh-rsa");
+				xkey->cert_len = pCertContext->cbCertEncoded;
+				xkey->cert_data = snewn(xkey->cert_len, unsigned char);
+				memcpy(xkey->cert_data, pCertContext->pbCertEncoded, xkey->cert_len);
+			} else {
+				rsa = snew(struct RSAKey);
+				*rsa = (struct RSAKey){0};
+				rsa->sshk.vt = find_pubkey_alg("ssh-rsa");
+			}
 
 			RSAPUBKEY* pPublicKey = (RSAPUBKEY*)(pbPublicKeyBlob + sizeof(BLOBHEADER));
 			rsa->bits = pPublicKey->bitlen;
@@ -394,10 +578,9 @@ struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertCont
 	// Handle EDDSA Keys
 	else if (strstr(sAlgoId, szOID_ECC_PUBLIC_KEY) == sAlgoId && strcmp(sSigAlgId, szOID_ED25519) == 0)
 	{
-		// calculate key bit and byte lengths (ignore leading byte)
-		int iKeyLength = ((pPubKey->cbData - 1) * 8 - pPubKey->cUnusedBits) / 2;
-		const int iKeyBytes = (iKeyLength + 7) / 8;
-		LPBYTE pPubKeyData = &pPubKey->pbData[1];
+		int iKeyLength = 256;
+		const int iKeyBytes = 32;
+		LPBYTE pPubKeyData = pPubKey->pbData;
 
 		// create eddsa struture to hold our key params
 		struct eddsa_key* ec = snew(struct eddsa_key);
@@ -437,10 +620,40 @@ struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertCont
 		const int iKeyBytes = (iKeyLength + 7) / 8;
 		BCryptDestroyKey(hBCryptKey);
 
-		// create ecdsa structure to hold our key params
-		struct ecdsa_key* ec = snew(struct ecdsa_key);
-		*ec = (struct ecdsa_key){0};
-		ec_nist_alg_and_curve_by_bits(iKeyLength, &(ec->curve), &(ec->sshk.vt));
+		if (pPubKey->cbData < 1 + 2 * iKeyBytes || pPubKey->pbData[0] != 0x04) return NULL;
+
+		struct ecdsa_key* ec;
+		struct x509_ssh_ecdsa_key* xkey = NULL;
+		if (bAttemptX509) {
+			xkey = snew(struct x509_ssh_ecdsa_key);
+			*xkey = (struct x509_ssh_ecdsa_key){0};
+			ec = &xkey->ecdsa;
+			if (iKeyLength == 256) ec->sshk.vt = find_pubkey_alg("x509v3-ecdsa-sha2-nistp256");
+			else if (iKeyLength == 384) ec->sshk.vt = find_pubkey_alg("x509v3-ecdsa-sha2-nistp384");
+			else if (iKeyLength == 521) ec->sshk.vt = find_pubkey_alg("x509v3-ecdsa-sha2-nistp521");
+			else {
+				sfree(xkey);
+				return NULL;
+			}
+			const ssh_keyalg *dummy_alg;
+			ec_nist_alg_and_curve_by_bits(iKeyLength, &(ec->curve), &dummy_alg);
+			xkey->cert_len = pCertContext->cbCertEncoded;
+			xkey->cert_data = snewn(xkey->cert_len, unsigned char);
+			memcpy(xkey->cert_data, pCertContext->pbCertEncoded, xkey->cert_len);
+		} else {
+			ec = snew(struct ecdsa_key);
+			*ec = (struct ecdsa_key){0};
+			ec_nist_alg_and_curve_by_bits(iKeyLength, &(ec->curve), &(ec->sshk.vt));
+		}
+		if (ec->sshk.vt == NULL) {
+			if (xkey) {
+				sfree(xkey->cert_data);
+				sfree(xkey);
+			} else {
+				sfree(ec);
+			}
+			return NULL;
+		}
 		ec->privateKey = mp_from_integer(0);
 
 		// translate v-tables for fido keys
@@ -467,7 +680,7 @@ struct ssh2_userkey* cert_get_ssh_userkey(LPCSTR szCert, PCERT_CONTEXT pCertCont
 	return pUserKey;
 }
 
-struct ssh2_userkey* cert_load_key(LPCSTR szCert)
+struct ssh2_userkey* cert_load_key_with_x509(LPCSTR szCert, BOOL bAttemptX509)
 {
 	// sanity check
 	if (szCert == NULL) return NULL;
@@ -487,10 +700,15 @@ struct ssh2_userkey* cert_load_key(LPCSTR szCert)
 	if (cert_load_cert(szCert, &pCertContext, &hCertStore) == FALSE) return NULL;
 
 	// get the public key data
-	struct ssh2_userkey* pUserKey = cert_get_ssh_userkey(szCert, pCertContext);
+	struct ssh2_userkey* pUserKey = cert_get_ssh_userkey(szCert, pCertContext, bAttemptX509);
 	CertFreeCertificateContext(pCertContext);
 	CertCloseStore(hCertStore, 0);
 	return pUserKey;
+}
+
+struct ssh2_userkey* cert_load_key(LPCSTR szCert)
+{
+	return cert_load_key_with_x509(szCert, cert_auth_x509_enabled(CERT_QUERY));
 }
 
 LPSTR cert_key_string(LPCSTR szCert)
@@ -507,7 +725,8 @@ LPSTR cert_key_string(LPCSTR szCert)
 	if (cert_load_cert(szCert, &pCertContext, &hCertStore) == FALSE) return NULL;
 
 	// obtain the key and destroy the comment since we are going to customize it
-	struct ssh2_userkey* pUserKey = cert_get_ssh_userkey(szCert, pCertContext);
+	struct ssh2_userkey* pUserKey = cert_get_ssh_userkey(
+		szCert, pCertContext, cert_auth_x509_enabled(CERT_QUERY));
 	if (pUserKey == NULL) return NULL;
 	sfree(pUserKey->comment);
 	pUserKey->comment = "";
@@ -662,7 +881,7 @@ BOOL cert_check_valid(LPCSTR szIden, PCCERT_CONTEXT pCertContext)
 
 	// verify time validity if requested
 	DWORD iFlags = CERT_STORE_TIME_VALIDITY_FLAG;
-	if (!cert_ignore_expired_certs(CERT_QUERY))
+	if (cert_ignore_expired_certs(CERT_QUERY))
 	{
 		if (CertVerifySubjectCertificateContext(pCertContext, NULL, &iFlags) == TRUE && iFlags != 0)
 			return FALSE;
@@ -680,9 +899,9 @@ BOOL cert_check_valid(LPCSTR szIden, PCCERT_CONTEXT pCertContext)
 
 		// consider trusted if error was account offline crls
 		DWORD dwIgnoredErrors = CERT_TRUST_IS_OFFLINE_REVOCATION | CERT_TRUST_REVOCATION_STATUS_UNKNOWN;
-		if (cert_ignore_expired_certs(CERT_QUERY)) 
+		if (!cert_ignore_expired_certs(CERT_QUERY))
 		{
-			// allow accept expired certs if user has that setting enabled
+			// tolerate chain time errors only when not filtering expired certs
 			dwIgnoredErrors |= CERT_TRUST_IS_NOT_TIME_VALID | CERT_TRUST_IS_NOT_TIME_NESTED;
 		}
 		BOOL bTrusted = (pChainContext->TrustStatus.dwErrorStatus & ~dwIgnoredErrors) == 0;
@@ -763,45 +982,44 @@ LPBYTE cert_get_hash(LPCSTR szAlgo, LPCBYTE pDataToHash, DWORD iDataToHashSize, 
 	// for rsa, prepend the hash digest if requested
 	size_t iDigestSize = 0;
 	LPBYTE pDigest = NULL;
-	LPWSTR sNCryptAlg = NULL;
+	LPCWSTR sHashAlgId;
 
-	const BOOL bNeedsDigest = bRequestDigest && (strstr(szAlgo, "rsa") != NULL);
-	if (strcmp(szAlgo, "rsa-sha2-256") == 0 || strcmp(szAlgo, "ecdsa-sha2-nistp256") == 0)
+	const BOOL bNeedsDigest = bRequestDigest && szAlgo != NULL && (strstr(szAlgo, "rsa") != NULL);
+	CERT_HASHALG iHashAlg = cert_resolve_hash_alg(NULL, 0, szAlgo, 0, NULL, NULL, &sHashAlgId);
+	switch (iHashAlg)
 	{
-		sNCryptAlg = BCRYPT_SHA256_ALGORITHM;
+	case CERT_HASH_SHA256:
 		if (bNeedsDigest)
 		{
 			iDigestSize = sizeof(OID_SHA256);
 			pDigest = (LPBYTE)OID_SHA256;
 		}
-	}
-	else if (strcmp(szAlgo, "ecdsa-sha2-nistp384") == 0)
-	{
-		sNCryptAlg = BCRYPT_SHA384_ALGORITHM;
+		break;
+
+	case CERT_HASH_SHA384:
 		if (bNeedsDigest)
 		{
 			iDigestSize = sizeof(OID_SHA384);
 			pDigest = (LPBYTE)OID_SHA384;
 		}
-	}
-	else if (strcmp(szAlgo, "rsa-sha2-512") == 0 || strcmp(szAlgo, "ecdsa-sha2-nistp521") == 0)
-	{
-		sNCryptAlg = BCRYPT_SHA512_ALGORITHM;
+		break;
+
+	case CERT_HASH_SHA512:
 		if (bNeedsDigest)
 		{
 			iDigestSize = sizeof(OID_SHA512);
 			pDigest = (LPBYTE)OID_SHA512;
 		}
-	}
-	else
-	{
-		pDigest = (LPBYTE)OID_SHA1;
-		sNCryptAlg = BCRYPT_SHA1_ALGORITHM;
+		break;
+
+	case CERT_HASH_SHA1:
+	default:
 		if (bNeedsDigest)
 		{
 			iDigestSize = sizeof(OID_SHA1);
 			pDigest = (LPBYTE)OID_SHA1;
 		}
+		break;
 	}
 
 	BCRYPT_ALG_HANDLE hAlg = NULL;
@@ -811,7 +1029,7 @@ LPBYTE cert_get_hash(LPCSTR szAlgo, LPCBYTE pDataToHash, DWORD iDataToHashSize, 
 	*iHashedDataSize = 0;
 
 	// acquire crypto provider, hash data, and export hashed binary data
-	if (BCryptOpenAlgorithmProvider(&hAlg, sNCryptAlg, NULL, 0) != STATUS_SUCCESS ||
+	if (BCryptOpenAlgorithmProvider(&hAlg, sHashAlgId, NULL, 0) != STATUS_SUCCESS ||
 		BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, (PBYTE)iHashedDataSize, sizeof(DWORD), &iPropSize, 0) != STATUS_SUCCESS ||
 		(pHashData = snewn(*iHashedDataSize + iDigestSize, BYTE)) == NULL ||
 		BCryptCreateHash(hAlg, &hHash, NULL, 0, NULL, 0, 0) != STATUS_SUCCESS ||
@@ -1022,6 +1240,14 @@ BOOL cert_auto_load_certs(CERT_SETCMD iCommand)
 	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
 	return cert_registry_setting_load(sSetting, FALSE, iCommand);
 }
+
+BOOL cert_auth_x509_enabled(CERT_SETCMD iCommand)
+{
+	const LPSTR sSetting = "AuthX509";
+	if (iCommand & (CERT_SET | CERT_UNSET)) cert_registry_setting_set(sSetting, iCommand);
+	return cert_registry_setting_load(sSetting, FALSE, iCommand);
+}
+
 DWORD cert_menu_flags(BOOL(*func)(CERT_SETCMD iCommand))
 {
 	DWORD flags = func(CERT_QUERY) ? MF_CHECKED : MF_UNCHECKED;
@@ -1069,6 +1295,10 @@ BOOL cert_cmdline_parse(LPCSTR sCommand)
 	else if (!strcmp(sCommand, "-allowanycert") || !strcmp(sCommand, "-allowanycertoff"))
 	{
 		cert_allow_any_cert((!strcmp(sCommand, "-allowanycert")) ? CERT_SET : CERT_UNSET);
+	}
+	else if (!strcmp(sCommand, "-x509") || !strcmp(sCommand, "-x509off"))
+	{
+		cert_auth_x509_enabled((!strcmp(sCommand, "-x509")) ? CERT_SET : CERT_UNSET);
 	}
 	else
 	{

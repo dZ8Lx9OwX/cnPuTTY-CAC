@@ -67,7 +67,7 @@ BYTE * cert_pkcs_sign(struct ssh2_userkey * userkey, LPCBYTE pDataToSign, int iD
 	CK_ATTRIBUTE_TYPE oAttribute = 0;
 
 	// ecdsa
-	if (strstr(userkey->key->vt->ssh_id, "ecdsa-") == userkey->key->vt->ssh_id)
+	if (strstr(userkey->key->vt->ssh_id, "ecdsa-") != NULL)
 	{
 		oType = CKK_EC;
 		oAttribute = CKA_EC_POINT;
@@ -568,7 +568,12 @@ PCCERT_CONTEXT pkcs_get_cert_from_token(CK_FUNCTION_LIST_PTR FunctionList, CK_SE
 	// create a certificate context from this token
 	PCCERT_CONTEXT pCertObject = CertCreateCertificateContext(
 		X509_ASN_ENCODING | PKCS_7_ASN_ENCODING, pValue, iValue);
-
+	if (pCertObject == NULL)
+	{
+		free(pValue);
+		return NULL;
+	}
+	
 	// store the pkcs library as an attribute on the certificate
 	WCHAR sFileNameWide[MAX_PATH + 1];
 	MultiByteToWideChar(CP_ACP, 0, szFile, -1, sFileNameWide, _countof(sFileNameWide));

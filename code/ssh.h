@@ -460,6 +460,14 @@ struct RSAKey {
     ssh_key sshk;
 };
 
+#ifdef PUTTY_CAC
+struct x509_ssh_rsa_key {
+    RSAKey rsa;
+    unsigned char *cert_data;
+    size_t cert_len;
+};
+#endif
+
 struct dsa_key {
     mp_int *p, *q, *g, *y, *x;
     ssh_key sshk;
@@ -539,6 +547,13 @@ struct ecdsa_key {
     ptrlen credId;
 #endif
 };
+#ifdef PUTTY_CAC
+struct x509_ssh_ecdsa_key {
+    struct ecdsa_key ecdsa;
+    unsigned char *cert_data;
+    size_t cert_len;
+};
+#endif
 struct eddsa_key {
     const struct ec_curve *curve;
     EdwardsPoint *publicKey;
@@ -1276,6 +1291,12 @@ extern const ssh_keyalg ssh_ecdsa_nistp256;
 extern const ssh_keyalg ssh_ecdsa_nistp384;
 extern const ssh_keyalg ssh_ecdsa_nistp521;
 #ifdef PUTTY_CAC
+bool x509_cert_subject_public_key(ptrlen cert, ptrlen *spk_out);
+extern const ssh_keyalg ssh_x509v3_ssh_rsa;
+extern const ssh_keyalg ssh_x509v3_rsa2048_sha256;
+extern const ssh_keyalg ssh_x509v3_ecdsa_nistp256;
+extern const ssh_keyalg ssh_x509v3_ecdsa_nistp384;
+extern const ssh_keyalg ssh_x509v3_ecdsa_nistp521;
 extern const ssh_keyalg ssh_ecdsa_nistp256_sk;
 extern const ssh_keyalg ssh_ecdsa_nistp384_sk;
 extern const ssh_keyalg ssh_ecdsa_nistp521_sk;

@@ -311,6 +311,18 @@ static bool ssh2_userauth_signflags(struct ssh2_userauth_state *s,
     const char* comment = (s->agent_keys_len > 0 && s->publickey_algorithm != *algname) ? s->agent_keys[s->agent_key_index].comment->s : s->publickey_comment;
     s->ppl.bpp->ext_info_rsa_sha256_ok = s->ppl.bpp->ext_info_rsa_sha256_ok && cert_test_hash(comment, SSH_AGENT_RSA_SHA2_256);
     s->ppl.bpp->ext_info_rsa_sha512_ok = s->ppl.bpp->ext_info_rsa_sha512_ok && cert_test_hash(comment, SSH_AGENT_RSA_SHA2_512);
+
+    if (strcmp(alg->ssh_id, "x509v3-ssh-rsa") == 0) {
+        int bits = -1;
+        if (s->agent_keys_len > 0 && s->agent_key_index < s->agent_key_limit) {
+            bits = ssh_key_public_bits(alg, ptrlen_from_strbuf(s->agent_keys[s->agent_key_index].blob));
+        } else if (s->publickey_blob) {
+            bits = ssh_key_public_bits(alg, ptrlen_from_strbuf(s->publickey_blob));
+        }
+        if (bits > 0 && bits < 2048) {
+            supported_flags &= ~SSH_AGENT_RSA_SHA2_256;
+        }
+    }
 #endif // PUTTY_CAC
 
     if (s->ppl.bpp->ext_info_rsa_sha512_ok &&
@@ -1318,7 +1330,21 @@ static void ssh2_userauth_process_queue(PacketProtocolLayer *ppl)
 					if (cert_is_certpath(key->comment))
 					{
 						ptrlen datatosign = ptrlen_from_strbuf(sigdata);
-						cert_sign(key, datatosign.ptr, datatosign.len, s->signflags, sigblob);
+						if (!cert_sign(key, datatosign.ptr, datatosign.len, s->signflags, sigblob))
+						{
+							ppl_logevent("Smartcard/token refused signing request");
+							ppl_printf("Smartcard/token failed to provide a signature\r\n");
+							s->suppress_wait_for_response_packet = true;
+							ssh_free_pktout(s->pktout);
+							strbuf_free(sigdata);
+							strbuf_free(pkblob);
+							strbuf_free(sigblob);
+							ssh_key_free(key->key);
+							sfree(key->comment);
+							sfree(key);
+							s->is_trivial_auth = false;
+							continue;
+						}
 					}
 					else
 #endif // PUTTY_CAC
@@ -2476,7 +2502,25 @@ static void ssh2_userauth_add_alg_and_publickey(
      * except for the same bug workaround as above. */
     alg = workaround_rsa_sha2_cert_userauth(s, alg);
     put_stringpl(pkt, alg);
+#ifdef PUTTY_CAC
+    // Rewrite blob's leading alg name to x509v3-rsa2048-sha256
+    strbuf *modified_pkblob = NULL;
+    if (ptrlen_eq_string(alg, "x509v3-rsa2048-sha256")) {
+        BinarySource src[1];
+        BinarySource_BARE_INIT(src, pkblob.ptr, pkblob.len);
+        if (ptrlen_eq_string(get_string(src), "x509v3-ssh-rsa")) {
+            modified_pkblob = strbuf_new();
+            put_stringz(modified_pkblob, "x509v3-rsa2048-sha256");
+            put_datapl(modified_pkblob, get_data(src, get_avail(src)));
+            pkblob = ptrlen_from_strbuf(modified_pkblob);
+        }
+    }
+#endif
     put_stringpl(pkt, pkblob);
+#ifdef PUTTY_CAC
+    if (modified_pkblob)
+        strbuf_free(modified_pkblob);
+#endif
 }
 
 static ptrlen workaround_rsa_sha2_cert_userauth(

@@ -555,6 +555,13 @@ ssh2_userkey ssh2_wrong_passphrase = { NULL, NULL };
 
 const ssh_keyalg *const all_keyalgs[] = {
     &ssh_rsa,
+#ifdef PUTTY_CAC
+    &ssh_x509v3_ssh_rsa,
+    &ssh_x509v3_rsa2048_sha256,
+    &ssh_x509v3_ecdsa_nistp256,
+    &ssh_x509v3_ecdsa_nistp384,
+    &ssh_x509v3_ecdsa_nistp521,
+#endif
     &ssh_rsa_sha256,
     &ssh_rsa_sha512,
     &ssh_dsa,

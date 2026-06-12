@@ -16,6 +16,42 @@
 #pragma comment(lib,"cryptui.lib")
 #pragma comment(lib,"ncrypt.lib")
 
+// Open the certificate's private key through a CNG Key Storage Provider,
+// preferring the KSP in all cases: try the provider named in the certificate
+// first, then the Microsoft Smart Card and Software KSPs as bridges (the Smart
+// Card KSP shares container names with the legacy Base Smart Card CSP, so it can
+// service smart-card keys whose certificate still references that CSP). Returns
+// FALSE (handles left 0) when no KSP can open the key, so the caller can fall
+// back to the legacy CryptoAPI.
+static BOOL cert_capi_open_ncrypt_key(PCRYPT_KEY_PROV_INFO pProviderInfo,
+	NCRYPT_PROV_HANDLE* phProvider, NCRYPT_KEY_HANDLE* phKey)
+{
+	*phProvider = 0;
+	*phKey = 0;
+
+	// cert-named provider first (authoritative), then KSP bridges
+	LPCWSTR szProviders[] = {
+		pProviderInfo->pwszProvName,
+		MS_SMART_CARD_KEY_STORAGE_PROVIDER,
+		MS_KEY_STORAGE_PROVIDER
+	};
+	for (size_t iProvider = 0; iProvider < ARRAYSIZE(szProviders); iProvider++)
+	{
+		if (NCryptOpenStorageProvider(phProvider, szProviders[iProvider], 0) == ERROR_SUCCESS &&
+			NCryptOpenKey(*phProvider, phKey, pProviderInfo->pwszContainerName,
+				pProviderInfo->dwKeySpec, 0) == ERROR_SUCCESS)
+		{
+			return TRUE;
+		}
+
+		// release partial handles before trying the next provider
+		if (*phKey != 0) { NCryptFreeObject(*phKey); *phKey = 0; }
+		if (*phProvider != 0) { NCryptFreeObject(*phProvider); *phProvider = 0; }
+	}
+
+	return FALSE;
+}
+
 void cert_capi_load_cert(LPCSTR szCert, PCCERT_CONTEXT* ppCertCtx, HCERTSTORE* phStore)
 {
 	HCERTSTORE hStore = cert_capi_get_cert_store();
@@ -57,18 +93,9 @@ void cert_capi_load_cert(LPCSTR szCert, PCCERT_CONTEXT* ppCertCtx, HCERTSTORE* p
 BOOL cert_capi_test_hash(LPCSTR szCert, DWORD iHashRequest)
 {
 	// use flags to determine requested signature hash algorithm
-	ALG_ID iHashAlg = CALG_SHA1;
-	LPCWSTR sHashAlgBCrypt = BCRYPT_SHA1_ALGORITHM;
-	if (iHashRequest == SSH_AGENT_RSA_SHA2_256)
-	{
-		iHashAlg = CALG_SHA_256;
-		sHashAlgBCrypt = BCRYPT_SHA256_ALGORITHM;
-	}
-	if (iHashRequest == SSH_AGENT_RSA_SHA2_512)
-	{
-		iHashAlg = CALG_SHA_512;
-		sHashAlgBCrypt = BCRYPT_SHA512_ALGORITHM;
-	}
+	DWORD iHashAlg;
+	LPCWSTR sHashAlgId;
+	(void)cert_resolve_hash_alg(NULL, 0, NULL, iHashRequest, NULL, &iHashAlg, &sHashAlgId);
 
 	// get a handle to the certificate
 	HCERTSTORE hCertStore = NULL;
@@ -93,12 +120,13 @@ BOOL cert_capi_test_hash(LPCSTR szCert, DWORD iHashRequest)
 	{
 		HCRYPTPROV_OR_NCRYPT_KEY_HANDLE hCryptProv = 0;
 		NCRYPT_PROV_HANDLE hNCryptProv = 0;
+		NCRYPT_KEY_HANDLE hNCryptKey = 0;
 
-		if (NCryptOpenStorageProvider(&hNCryptProv, pProviderInfo->pwszProvName, 0) == ERROR_SUCCESS)
+		if (cert_capi_open_ncrypt_key(pProviderInfo, &hNCryptProv, &hNCryptKey))
 		{
-			// see whether this providers supports the algorihmn
+			// key is serviced through cng; report whether cng supports the hash
 			BCRYPT_ALG_HANDLE hAlg = NULL;
-			bHashSuccess = BCryptOpenAlgorithmProvider(&hAlg, sHashAlgBCrypt, NULL, 0) == 0;
+			bHashSuccess = BCryptOpenAlgorithmProvider(&hAlg, sHashAlgId, NULL, 0) == 0;
 			if (hAlg != NULL) BCryptCloseAlgorithmProvider(hAlg, 0);
 		}
 		else if (CryptAcquireContextW(&hCryptProv, pProviderInfo->pwszContainerName,
@@ -107,37 +135,29 @@ BOOL cert_capi_test_hash(LPCSTR szCert, DWORD iHashRequest)
 		{
 			// check if legacy csp can create a hash of this type
 			HCRYPTHASH hHash = (ULONG_PTR)NULL;
-			bHashSuccess = CryptCreateHash((HCRYPTPROV)hCryptProv, iHashAlg, 0, 0, &hHash) != FALSE;
+			bHashSuccess = CryptCreateHash((HCRYPTPROV)hCryptProv, (ALG_ID)iHashAlg, 0, 0, &hHash) != FALSE;
 			if (hHash != (ULONG_PTR)NULL) { CryptDestroyHash(hHash); }
 		}
 
 		// cleanup crypto structures and intermediate signing data
 		if (hCryptProv != 0) CryptReleaseContext(hCryptProv, 0);
 		if (hNCryptProv != 0) NCryptFreeObject(hNCryptProv);
-		if (pProviderInfo != NULL) sfree(pProviderInfo);
+		if (hNCryptKey != 0) NCryptFreeObject(hNCryptKey);
 	}
 
 	// cleanup certificate handles and return
 	if (pCertCtx != NULL) { CertFreeCertificateContext(pCertCtx); }
 	if (hCertStore != NULL) { CertCloseStore(hCertStore, 0); }
+	if (pProviderInfo != NULL) sfree(pProviderInfo);
 	return bHashSuccess;
 }
 
 BYTE* cert_capi_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDataToSignLen, int* iSigLen, LPCSTR sHashAlgName)
 {
 	// use flags to determine requested signature hash algorithm
-	ALG_ID iHashAlg = CALG_SHA1;
-	LPCWSTR iHashAlgNCrypt = NCRYPT_SHA1_ALGORITHM;
-	if (strcmp(sHashAlgName, "rsa-sha2-256") == 0)
-	{
-		iHashAlg = CALG_SHA_256;
-		iHashAlgNCrypt = NCRYPT_SHA256_ALGORITHM;
-	}
-	if (strcmp(sHashAlgName, "rsa-sha2-512") == 0)
-	{
-		iHashAlg = CALG_SHA_512;
-		iHashAlgNCrypt = NCRYPT_SHA512_ALGORITHM;
-	}
+	DWORD iHashAlg;
+	LPCWSTR sHashAlgId;
+	(void)cert_resolve_hash_alg(NULL, 0, sHashAlgName, 0, NULL, &iHashAlg, &sHashAlgId);
 
 	// get a handle to the certificate
 	HCERTSTORE hCertStore = NULL;
@@ -165,8 +185,7 @@ BYTE* cert_capi_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDat
 		NCRYPT_KEY_HANDLE hNCryptKey = 0;
 		NCRYPT_PROV_HANDLE hNCryptProv = 0;
 
-		if (NCryptOpenStorageProvider(&hNCryptProv, pProviderInfo->pwszProvName, 0) == ERROR_SUCCESS &&
-			NCryptOpenKey(hNCryptProv, &hNCryptKey, pProviderInfo->pwszContainerName, pProviderInfo->dwKeySpec, 0) == ERROR_SUCCESS)
+		if (cert_capi_open_ncrypt_key(pProviderInfo, &hNCryptProv, &hNCryptKey))
 		{
 			// set pin prompt
 			WCHAR* szPin = NULL;
@@ -181,9 +200,11 @@ BYTE* cert_capi_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDat
 			DWORD iPadFlag = 0;
 			BCRYPT_PKCS1_PADDING_INFO tInfo = { 0 };
 			PVOID pPadInfo = NULL;
-			if (strcmp(userkey->key->vt->ssh_id, "ssh-rsa") == 0)
+			if (strcmp(userkey->key->vt->ssh_id, "ssh-rsa") == 0 ||
+				strcmp(userkey->key->vt->ssh_id, "x509v3-ssh-rsa") == 0 ||
+				strcmp(userkey->key->vt->ssh_id, "x509v3-rsa2048-sha256") == 0)
 			{
-				tInfo.pszAlgId = iHashAlgNCrypt;
+				tInfo.pszAlgId = sHashAlgId;
 				iPadFlag = BCRYPT_PAD_PKCS1;
 				pPadInfo = &tInfo;
 			}
@@ -225,7 +246,7 @@ BYTE* cert_capi_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDat
 
 			// CSP implementation
 			HCRYPTHASH hHash = (ULONG_PTR)NULL;
-			if (CryptCreateHash((HCRYPTPROV)hCryptProv, iHashAlg, 0, 0, &hHash) != FALSE &&
+			if (CryptCreateHash((HCRYPTPROV)hCryptProv, (ALG_ID)iHashAlg, 0, 0, &hHash) != FALSE &&
 				CryptHashData(hHash, (LPBYTE)pDataToSign, iDataToSignLen, 0) != FALSE &&
 				CryptSignHash(hHash, pProviderInfo->dwKeySpec, NULL, 0, NULL, &iSig) != FALSE &&
 				CryptSignHash(hHash, pProviderInfo->dwKeySpec, NULL, 0, pSig = snewn(iSig, BYTE), &iSig) != FALSE)
@@ -252,12 +273,12 @@ BYTE* cert_capi_sign(struct ssh2_userkey* userkey, LPCBYTE pDataToSign, int iDat
 		if (hNCryptProv != 0) NCryptFreeObject(hNCryptProv);
 		if (hNCryptKey != 0) NCryptFreeObject(hNCryptKey);
 		if (pSig != NULL) sfree(pSig);
-		if (pProviderInfo != NULL) sfree(pProviderInfo);
 	}
 
 	// cleanup certificate handles and return
 	if (pCertCtx != NULL) { CertFreeCertificateContext(pCertCtx); }
 	if (hCertStore != NULL) { CertCloseStore(hCertStore, 0); }
+	if (pProviderInfo != NULL) sfree(pProviderInfo);
 	return pSignedData;
 }
 
@@ -286,8 +307,7 @@ BOOL cert_capi_delete_key(LPCSTR szCert)
 		NCRYPT_KEY_HANDLE hNCryptKey = 0;
 		NCRYPT_PROV_HANDLE hNCryptProv = 0;
 
-		if (NCryptOpenStorageProvider(&hNCryptProv, pProviderInfo->pwszProvName, 0) == ERROR_SUCCESS &&
-			NCryptOpenKey(hNCryptProv, &hNCryptKey, pProviderInfo->pwszContainerName, pProviderInfo->dwKeySpec, 0) == ERROR_SUCCESS)
+		if (cert_capi_open_ncrypt_key(pProviderInfo, &hNCryptProv, &hNCryptKey))
 		{
 			bSuccess = NCryptDeleteKey(hNCryptKey, 0) == ERROR_SUCCESS;
 			if (bSuccess) hNCryptKey = 0;
@@ -303,13 +323,13 @@ BOOL cert_capi_delete_key(LPCSTR szCert)
 		if (hCryptProv != 0) CryptReleaseContext(hCryptProv, 0);
 		if (hNCryptProv != 0) NCryptFreeObject(hNCryptProv);
 		if (hNCryptKey != 0) NCryptFreeObject(hNCryptKey);
-		if (pProviderInfo != NULL) sfree(pProviderInfo);
 	}
 
 	// cleanup certificate handles and return
 	if (bSuccess) CertDeleteCertificateFromStore(pCertCtx);
 	else if (pCertCtx != NULL) { CertFreeCertificateContext(pCertCtx); }
 	if (hCertStore != NULL) { CertCloseStore(hCertStore, 0); }
+	if (pProviderInfo != NULL) sfree(pProviderInfo);
 	return bSuccess;
 }
 
